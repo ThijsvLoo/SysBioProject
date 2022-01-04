@@ -7,7 +7,6 @@ output: html_document
 library(tidyverse)
 library(limma)
 library(Biobase)
-
 ```
 
 
@@ -20,6 +19,7 @@ geneTotExonLengths <- read.delim("./Data/MAGNET_exonLengths.txt", as.is = T, row
 ```{python}
 import pandas as pd
 import seaborn as sns
+
 ```
 
 differential gene expression 
@@ -43,6 +43,6 @@ fit2 <- eBayes(fit2)
 
 # Summarize results
 diffExpr_DonorVsDCM <- topTable(fit2, adjust = "BH", number = nrow(gxData))
-diffGenExpr <- decideTests(fit2)
+diffGenExpr <- decideTests(fit2, adjust.method = "BH", p.value = 0.05, lfc = 1)
 summary(diffGenExpr)
 ```
