@@ -5,10 +5,10 @@ output: html_notebook
 part 1a: import data
 Data will be imported from the same folder this .Rmd file is in, otherwise set working directory
 ```{r}
-# setwd("")
-gxData <- read.delim("MAGNET_GeneExpressionData_CPM_19112020.txt", as.is = T, row.names = 1)
-sampleInfo <- read.delim("MAGNET_SampleData_19112020.txt", as.is = T, row.names = 1)
-geneTotExonLengths <- read.delim("MAGNET_exonLengths.txt", as.is = T, row.names = 1)
+setwd("C:/Users/thijs/Documents/GitHub/SysBioProject")
+gxData <- read.delim("./Data/MAGNET_GeneExpressionData_CPM_19112020.txt", as.is = T, row.names = 1)
+sampleInfo <- read.delim("./Data/MAGNET_SampleData_19112020.txt", as.is = T, row.names = 1)
+geneTotExonLengths <- read.delim("./Data/MAGNET_exonLengths.txt", as.is = T, row.names = 1)
 ```
 
 Part 1b: descriptive table 
@@ -158,7 +158,7 @@ fit2 <- eBayes(fit2)
 
 # Summarize results
 diffGenExpr <- decideTests(fit2)
-summary(results)
+summary(diffGenExpr)
 ```
 Part 3b: correct for relevant co-variates
 we do the same but correcting for all co-variates, since non of the possible co-variates seem like they would make a difference based on the PCA plots, I decided to add all of them and see if that matters, it did not really change much.
@@ -182,7 +182,7 @@ fit2 <- eBayes(fit2)
 
 # Summarize results
 diffGenExprAllCovariates <- decideTests(fit2)
-summary(results)
+summary(diffGenExprAllCovariates)
 ```
 
 PART 4:
