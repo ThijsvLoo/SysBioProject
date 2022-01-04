@@ -3,6 +3,11 @@ title: "MainMarkdown"
 output: html_document
 ---
 
+```{load dependencies}
+library(tidyverse)
+```
+
+
 ```{r setup, include=FALSE}
 gxData <- read.delim("./Data/MAGNET_GeneExpressionData_CPM_19112020.txt", as.is = T, row.names = 1)
 sampleInfo <- read.delim("./Data/MAGNET_SampleData_19112020.txt", as.is = T, row.names = 1)
@@ -14,3 +19,29 @@ import pandas as pd
 import seaborn as sns
 ```
 
+differential gene expression 
+```{r}
+library(limma)
+library(Biobase)
+
+# Create ExpressionSet object
+eset <- ExpressionSet(assayData = data.matrix(gxData_fpkm), phenoData = AnnotatedDataFrame(sampleInfo))
+
+design <- model.matrix(~0+Disease, data = pData(eset))
+
+# Create a contrasts matrix
+cm <- makeContrasts(status = DiseaseDCM - DiseaseDonor, levels = design)
+
+# Fit the model
+fit <- lmFit(eset, design)
+
+# Fit the contrasts
+fit2 <- contrasts.fit(fit, contrasts = cm)
+
+# Calculate the t-statistics for the contrasts
+fit2 <- eBayes(fit2)
+
+# Summarize results
+diffGenExpr <- decideTests(fit2)
+summary(diffGenExpr)
+```
