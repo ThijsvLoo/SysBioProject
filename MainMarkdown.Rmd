@@ -3,6 +3,11 @@ title: "MainMarkdown"
 output: html_document
 ---
 
+```{load dependencies}
+library(tidyverse)
+```
+
+
 ```{r setup, include=FALSE}
 gxData <- read.delim("./Data/MAGNET_GeneExpressionData_CPM_19112020.txt", as.is = T, row.names = 1)
 sampleInfo <- read.delim("./Data/MAGNET_SampleData_19112020.txt", as.is = T, row.names = 1)
