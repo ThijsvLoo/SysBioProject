@@ -44,5 +44,6 @@ fit2 <- eBayes(fit2)
 # Summarize results
 diffExpr_DonorVsDCM <- topTable(fit2, adjust = "BH", number = nrow(gxData))
 diffGenExpr <- decideTests(fit2, adjust.method = "BH", p.value = 0.05, lfc = 1)
+testMerge <- merge(diffExpr_DonorVsDCM, diffGenExpr, by="row.names",all.x=TRUE)
 summary(diffGenExpr)
 ```
