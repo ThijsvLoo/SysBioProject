@@ -1,0 +1,247 @@
+---
+title: "Final Assignment ED&DM"
+output: html_notebook
+---
+part 1a: import data
+Data will be imported from the same folder this .Rmd file is in, otherwise set working directory
+```{r}
+# setwd("")
+gxData <- read.delim("MAGNET_GeneExpressionData_CPM_19112020.txt", as.is = T, row.names = 1)
+sampleInfo <- read.delim("MAGNET_SampleData_19112020.txt", as.is = T, row.names = 1)
+geneTotExonLengths <- read.delim("MAGNET_exonLengths.txt", as.is = T, row.names = 1)
+```
+
+Part 1b: descriptive table 
+```{r}
+# library(psych) #used for description table
+require(tidyr)
+require(ggplot2)
+library(gridExtra)
+# describe(sampleInfo$Age) #doesn't add value if boxplots are also here
+
+#create some exploratory boxplots on the sample info and put them in a grid
+ExplBoxPlots <- grid.arrange(
+  ggplot(sampleInfo, aes(y = Age)) + geom_boxplot() + theme_classic(),
+  ggplot(sampleInfo, aes(x = Disease, y = Age)) + geom_boxplot() + theme_classic(),
+  ggplot(sampleInfo, aes(x = Sex, y = Age)) + geom_boxplot() + theme_classic(),
+  ggplot(sampleInfo, aes(x = Ethnicity, y = Age)) + geom_boxplot() + theme_classic(),
+  ncol = 2
+)
+
+```
+
+Part 1c: convert cpm to fpkm values
+```{r}
+all(rownames(geneTotExonLengths) == rownames(gxData)) # TRUE (just a check)
+cpm2fpkm <- function(x) {
+	geneTotExonLengths_kb <- geneTotExonLengths[, 1] / 1E3
+	.t <- 2^(x) / geneTotExonLengths_kb
+#	.t <- 2^(x) * 1E3 / geneTotExonLengths[, 1] # this does the same, but shorter
+}
+gxData_fpkm <- cpm2fpkm(gxData)
+```
+Part 2a: boxplots
+```{r}
+
+#create dataframe for boxplots of avarage expression per gene by gender
+# avgMaleExpr <- apply(gxData_fpkm[sampleInfo$Sex == "Male"], 1, mean)
+# avgFemExpr <- apply(gxData_fpkm[sampleInfo$Sex == "Female"], 1, mean)
+# AvgExprByGender <- as.data.frame(cbind(avgMaleExpr, avgFemExpr))
+# colnames(AvgExprByGender) = c("Male", "Female")
+# # boxplot(AvgExprByGender)
+# 
+# plotData <- gather(AvgExprByGender,	key = "Sex", value = "avgExpr")
+# ggplot(plotData, aes(x = Sex, y = avgExpr)) + geom_boxplot() + theme_classic() + xlab("Sex") + ylab("Avarage Expression per Gene")
+
+#function to generate a ggplot 2 pboxplot for avarage gene expresion per gene grouped by a column from sampleInfo
+createPlot <- function(name, info, data) {
+  #get unique values in sampleInfo colloumn
+  uniqueVals <- as.matrix(unique(info[name]))
+  #create an empty dataframe we can later add with length equal to the number of genes in our dataset
+  df <- data.frame(matrix(ncol = 0, nrow = length(as.matrix(data[1]))))
+  #for each unique value, could be the sex or disease etc, calculate their average expression values for each gene and add it to the array
+  for(val in uniqueVals){
+    tmpArr = apply(data[info[, name] == val], 1, mean)
+    # print(mean(tmpArr)) #for sanity check, to see that expression values are actually different
+    df <- cbind(df, tmpArr)
+  } 
+  #set the names of the collumns
+  colnames(df) = uniqueVals
+  #gather the data into a single collumn
+  df <- gather(df,	key = name, value = "avgExpr")
+  #create plot, which is used as return value
+  ggplot(df, aes(x = name, y = avgExpr)) + geom_boxplot() + theme_classic() + xlab(name) + ylab("Avarage Expression per Gene")
+}
+
+#create grid of plots, then save them together
+boxPlot1 <- grid.arrange(
+  createPlot("Sex", sampleInfo, gxData),
+  createPlot("Disease", sampleInfo, gxData),
+  createPlot("Ethnicity", sampleInfo, gxData),
+  ncol = 3
+)
+
+ggsave("boxPlot.png", plot = boxPlot1, width = 12)
+
+```
+
+Part 2b.1: generate PCA data for plots
+```{r}
+library(pcaMethods)
+pcaRes <- pca(t(gxData), nPcs = 10)
+#plot(pcaRes)
+#plotPcs(pcaRes, c(1,2))
+
+# Again check that the order of samples is the same
+all(rownames(pcaRes@scores) == sampleInfo[, 1]) # TRUE
+
+# Create ggplot plotting data:
+plotData <- cbind(data.frame(pcaRes@scores), sampleInfo)
+```
+
+Part 2b.2: create and save plots with sample clustering colored by all available co-variates
+```{r}
+
+# Create PCA plots ands save them
+pcaPlot1 <- grid.arrange(
+ggplot(plotData, aes(x = PC1, y = PC2)) + 
+		geom_point(aes(colour = Age, shape = Disease)) +
+  scale_colour_gradient(low = "blue", high = "red"),
+ggplot(plotData, aes(x = PC1, y = PC3)) + 
+		geom_point(aes(colour = Age, shape = Disease)) +
+  scale_colour_gradient(low = "blue", high = "red"),
+ggplot(plotData, aes(x = PC2, y = PC3)) + 
+		geom_point(aes(colour = Age, shape = Disease)) +
+  scale_colour_gradient(low = "blue", high = "red"),
+
+ggplot(plotData, aes(x = PC1, y = PC2)) + 
+		geom_point(aes(colour = Sex, shape = Disease)),
+ggplot(plotData, aes(x = PC1, y = PC3)) + 
+		geom_point(aes(colour = Sex, shape = Disease)),
+ggplot(plotData, aes(x = PC2, y = PC3)) + 
+		geom_point(aes(colour = Sex, shape = Disease)),
+
+ggplot(plotData, aes(x = PC1, y = PC2)) + 
+		geom_point(aes(colour = Ethnicity, shape = Disease)),
+ggplot(plotData, aes(x = PC1, y = PC3)) + 
+		geom_point(aes(colour = Ethnicity, shape = Disease)),
+ggplot(plotData, aes(x = PC2, y = PC3)) + 
+		geom_point(aes(colour = Ethnicity, shape = Disease)),
+ncol = 3)
+
+ggsave("PCA-Plots.png", plot = pcaPlot1, width = 16, height = 10)
+
+```
+
+Part 3a:
+differential gene expression 
+```{r}
+library(limma)
+library(Biobase)
+
+# Create ExpressionSet object
+eset <- ExpressionSet(assayData = data.matrix(gxData_fpkm), phenoData = AnnotatedDataFrame(sampleInfo))
+
+design <- model.matrix(~0+Disease, data = pData(eset))
+
+# Create a contrasts matrix
+cm <- makeContrasts(status = DiseaseDCM - DiseaseDonor, levels = design)
+
+# Fit the model
+fit <- lmFit(eset, design)
+
+# Fit the contrasts
+fit2 <- contrasts.fit(fit, contrasts = cm)
+
+# Calculate the t-statistics for the contrasts
+fit2 <- eBayes(fit2)
+
+# Summarize results
+diffGenExpr <- decideTests(fit2)
+summary(results)
+```
+Part 3b: correct for relevant co-variates
+we do the same but correcting for all co-variates, since non of the possible co-variates seem like they would make a difference based on the PCA plots, I decided to add all of them and see if that matters, it did not really change much.
+```{r}
+# Create ExpressionSet object
+eset <- ExpressionSet(assayData = data.matrix(gxData_fpkm), phenoData = AnnotatedDataFrame(sampleInfo))
+
+design <- model.matrix(~0+Disease+Age+Sex+Ethnicity, data = pData(eset))
+
+# Create a contrasts matrix
+cm <- makeContrasts(status = DiseaseDCM - DiseaseDonor, levels = design)
+
+# Fit the model
+fit <- lmFit(eset, design)
+
+# Fit the contrasts
+fit2 <- contrasts.fit(fit, contrasts = cm)
+
+# Calculate the t-statistics for the contrasts
+fit2 <- eBayes(fit2)
+
+# Summarize results
+diffGenExprAllCovariates <- decideTests(fit2)
+summary(results)
+```
+
+PART 4:
+Additional gene annotation
+```{r}
+library(biomaRt)
+mart <- useMart("ensembl")
+#set to use ensemble database for humans
+mart <- useDataset("hsapiens_gene_ensembl",mart)
+# listAttributes(mart) #to get a list of possible attributes
+
+#get gene annotation data from ensembl database
+geneAnnotationData <- getBM(attributes = c("ensembl_gene_id", "chromosome_name", "external_gene_name", "hgnc_symbol", "description"), 
+                            mart = mart,
+                            filters = "ensembl_gene_id",
+                            values = rownames(gxData)
+                            )
+
+```
+Part 5:
+Relative expression levels
+```{r}
+#Get all genes on Y chromosome
+genesFromYChromosome <- geneAnnotationData$ensembl_gene_id[geneAnnotationData$chromosome_name == "Y"]
+#get all gene expresiion data from female samples
+femGenExpr <- gxData_fpkm[sampleInfo$Sex == "Female"]
+#get gene expresion data from only Y chromosome genes, from only females
+femYChromGenExpr <- femGenExpr[rownames(gxData_fpkm) %in% genesFromYChromosome, ]
+#calculate the avarage of the above gene expresiion data
+avgfemYChromGenExpr <- mean(as.matrix(femYChromGenExpr))
+
+#Creates an array stating which genes are above avarage background noise
+avgGeneExpression <- apply(gxData_fpkm, 1, mean)
+genesAboveBackground <- avgGeneExpression > avgfemYChromGenExpr
+
+#gives number of genes above and below the determined background level
+table(genesAboveBackground)
+```
+Part 6: Gather and exporty results
+```{r}
+library(dplyr)
+#remove duplicates from gene annotation data, and fill in missing values with NA through merging
+# nonDuplicateGeneAnnotationData <- geneAnnotationData[!duplicated(geneAnnotationData$ensembl_gene_id), ]
+geneNames = as.data.frame(rownames(gxData))
+colnames(geneNames)[1] <- "ensembl_gene_id"
+nonDuplicateGeneAnnotationData <- merge(geneNames, geneAnnotationData[!duplicated(geneAnnotationData$ensembl_gene_id), ], by = "ensembl_gene_id", all.x = TRUE)
+
+#avarage expression vectors for DCM and Donor subjects per gene
+avgDCMGenExpr <- apply(gxData_fpkm[sampleInfo$Disease == "DCM"], 1, mean)
+avgDonorGenExpr <- apply(gxData_fpkm[sampleInfo$Disease == "Donor"], 1, mean)
+
+#usefull colname for differential gene expression output
+diffGenExprAllCovariatesDf <- as.data.frame(diffGenExprAllCovariates)
+colnames(diffGenExprAllCovariatesDf)[1] <- "UpDownRegulatedDCMvsDonor"
+
+#combine all data into one dataframe
+exportDF <- cbind(nonDuplicateGeneAnnotationData, genesAboveBackground, diffGenExprAllCovariatesDf ,avgGeneExpression, avgDCMGenExpr, avgDonorGenExpr)
+
+#write dataframe to file
+write.table(exportDF, "exportData.txt", sep="\t", row.names = FALSE)
+```
+
