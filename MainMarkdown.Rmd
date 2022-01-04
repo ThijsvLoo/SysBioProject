@@ -3,8 +3,11 @@ title: "MainMarkdown"
 output: html_document
 ---
 
-```{load dependencies}
+```{r load dependencies, echo = F}
 library(tidyverse)
+library(limma)
+library(Biobase)
+
 ```
 
 
@@ -21,11 +24,8 @@ import seaborn as sns
 
 differential gene expression 
 ```{r}
-library(limma)
-library(Biobase)
-
 # Create ExpressionSet object
-eset <- ExpressionSet(assayData = data.matrix(gxData_fpkm), phenoData = AnnotatedDataFrame(sampleInfo))
+eset <- ExpressionSet(assayData = data.matrix(gxData), phenoData = AnnotatedDataFrame(sampleInfo))
 
 design <- model.matrix(~0+Disease, data = pData(eset))
 
@@ -42,6 +42,7 @@ fit2 <- contrasts.fit(fit, contrasts = cm)
 fit2 <- eBayes(fit2)
 
 # Summarize results
+diffExpr_DonorVsDCM <- topTable(fit2, adjust = "BH", number = nrow(gxData))
 diffGenExpr <- decideTests(fit2)
 summary(diffGenExpr)
 ```
