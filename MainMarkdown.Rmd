@@ -3,20 +3,20 @@ title: "MainMarkdown"
 output: html_document
 ---
 
-```{r load dependencies, include = F}
+```{r load dependencies, echo = F}
 library(tidyverse)
 library(limma)
 library(Biobase)
 ```
 
 
-```{r setup, include=FALSE}
+```{r setup, include = F}
 gxData <- read.delim("./Data/MAGNET_GeneExpressionData_CPM_19112020.txt", as.is = T, row.names = 1)
 sampleInfo <- read.delim("./Data/MAGNET_SampleData_19112020.txt", as.is = T, row.names = 1)
 geneTotExonLengths <- read.delim("./Data/MAGNET_exonLengths.txt", as.is = T, row.names = 1)
 ```
 
-```{python}
+```{python, echo = F}
 import pandas as pd
 import seaborn as sns
 
@@ -50,6 +50,11 @@ diffGenExprTestData <- topTable(fit2, adjust = "BH", number = nrow(gxData))
 diffGenExprTestDecision <- decideTests(fit2, adjust.method = "BH", p.value = 0.05, lfc = 1)
 diffGenExprMerge <- merge(diffGenExprTestData, diffGenExprTestDecision, by="row.names",all.x=TRUE)  %>% column_to_rownames(var = "Row.names")
 summary(diffGenExprTestDecision)
+```
+```{r Gene Enrichment Analysis, echo = F}
+
+
+
 ```
 
 
