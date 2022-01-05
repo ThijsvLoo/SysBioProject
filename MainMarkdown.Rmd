@@ -3,7 +3,7 @@ title: "MainMarkdown"
 output: html_document
 ---
 
-```{r load dependencies, echo = F}
+```{r load dependencies, include = F}
 library(tidyverse)
 library(limma)
 library(Biobase)
@@ -23,7 +23,7 @@ import seaborn as sns
 ```
 
 differential gene expression 
-```{r}
+```{r Differential Gene Expression, echo = F}
 # Create ExpressionSet object
 eset <- ExpressionSet(assayData = data.matrix(gxData), phenoData = AnnotatedDataFrame(sampleInfo))
 
@@ -46,10 +46,10 @@ fit2 <- contrasts.fit(fit, contrasts = cm)
 fit2 <- eBayes(fit2)
 
 # Summarize results
-diffExpr_toptable <- topTable(fit2, adjust = "BH", number = nrow(gxData))
-diffGenExpr <- decideTests(fit2, adjust.method = "BH", p.value = 0.05, lfc = 1)
-testMerge <- merge(diffExpr_toptable, diffGenExpr, by="row.names",all.x=TRUE) #%>% select(-Row.names) %>% column_to_rownames(var = "ensemblID")
-summary(diffGenExpr)
+diffGenExprTestData <- topTable(fit2, adjust = "BH", number = nrow(gxData))
+diffGenExprTestDecision <- decideTests(fit2, adjust.method = "BH", p.value = 0.05, lfc = 1)
+diffGenExprMerge <- merge(diffGenExprTestData, diffGenExprTestDecision, by="row.names",all.x=TRUE)  %>% column_to_rownames(var = "Row.names")
+summary(diffGenExprTestDecision)
 ```
 
 
