@@ -10,7 +10,6 @@ library(Biobase)
 library(biomaRt)
 ```
 
-
 ```{r setup, include = F}
 gxData <- read.delim("./Data/MAGNET_GeneExpressionData_CPM_19112020.txt", as.is = T, row.names = 1)
 sampleInfo <- read.delim("./Data/MAGNET_SampleData_19112020.txt", as.is = T, row.names = 1)
@@ -23,7 +22,8 @@ import seaborn as sns
 
 ```
 
-differential gene expression 
+differential gene expression
+
 ```{r Differential Gene Expression, echo = F}
 # Create ExpressionSet object
 eset <- ExpressionSet(assayData = data.matrix(gxData), phenoData = AnnotatedDataFrame(sampleInfo))
@@ -47,15 +47,33 @@ fit2 <- contrasts.fit(fit, contrasts = cm)
 fit2 <- eBayes(fit2)
 
 # Summarize results
-diffGenExprTestData <- topTable(fit2, adjust = "BH", number = nrow(gxData))
-diffGenExprTestDecision <- decideTests(fit2, adjust.method = "BH", p.value = 0.05, lfc = 1)
+diffGenExprTestData <- topTable(fit2, adjust = "fdr", number = nrow(gxData))
+diffGenExprTestDecision <- decideTests(fit2, adjust.method = "fdr", p.value = 0.05, lfc = 1)
 diffGenExprMerge <- merge(diffGenExprTestData, diffGenExprTestDecision, by="row.names",all.x=TRUE)  %>% column_to_rownames(var = "Row.names")
 summary(diffGenExprTestDecision)
 ```
+<<<<<<< HEAD
 ```{r Gene Ontology and Gene Enrichment Analysis, echo = F}
+=======
+```{r biomart gene annotation}
+
+mart <- useMart("ensembl")
+#set to use ensemble database for humans
+mart <- useDataset("hsapiens_gene_ensembl",mart)
+# listAttributes(mart) #to get a list of possible attributes
+
+#get gene annotation data from ensembl database
+geneAnnotationData <- getBM(attributes = c("ensembl_gene_id", "chromosome_name", "external_gene_name", "hgnc_symbol", "description"), 
+                            mart = mart,
+                            filters = "ensembl_gene_id",
+                            values = rownames(gxData)
+                            )
+```
+
+```{r Gene Enrichment Analysis, echo = F}
+
+>>>>>>> 16e006bf38131e4ff2f72e79abfcb315a11d75db
 
 goana
 
 ```
-
-
