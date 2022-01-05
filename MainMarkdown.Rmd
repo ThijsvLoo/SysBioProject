@@ -30,7 +30,11 @@ eset <- ExpressionSet(assayData = data.matrix(gxData), phenoData = AnnotatedData
 design <- model.matrix(~0+Disease, data = pData(eset))
 
 # Create a contrasts matrix
-cm <- makeContrasts(status = DiseaseDCM - DiseaseDonor, levels = design)
+cm <- makeContrasts(
+  DonorVsPPCM = DiseaseDonor - DiseasePPCM, 
+  DonorVsHCM = DiseaseDonor - DiseaseHCM, 
+  DonorVsDCM = DiseaseDonor - DiseaseDCM,
+  levels = design)
 
 # Fit the model
 fit <- lmFit(eset, design)
@@ -44,6 +48,8 @@ fit2 <- eBayes(fit2)
 # Summarize results
 diffExpr_toptable <- topTable(fit2, adjust = "BH", number = nrow(gxData))
 diffGenExpr <- decideTests(fit2, adjust.method = "BH", p.value = 0.05, lfc = 1)
-testMerge <- merge(diffExpr_DonorVsDCM, diffGenExpr, by="row.names",all.x=TRUE)
+testMerge <- merge(diffExpr_toptable, diffGenExpr, by="row.names",all.x=TRUE) #%>% select(-Row.names) %>% column_to_rownames(var = "ensemblID")
 summary(diffGenExpr)
 ```
+
+
