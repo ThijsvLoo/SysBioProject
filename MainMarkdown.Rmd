@@ -7,6 +7,7 @@ output: html_document
 library(tidyverse)
 library(limma)
 library(Biobase)
+library(biomaRt)
 ```
 
 
@@ -51,9 +52,9 @@ diffGenExprTestDecision <- decideTests(fit2, adjust.method = "BH", p.value = 0.0
 diffGenExprMerge <- merge(diffGenExprTestData, diffGenExprTestDecision, by="row.names",all.x=TRUE)  %>% column_to_rownames(var = "Row.names")
 summary(diffGenExprTestDecision)
 ```
-```{r Gene Enrichment Analysis, echo = F}
+```{r Gene Ontology and Gene Enrichment Analysis, echo = F}
 
-
+goana
 
 ```
 
