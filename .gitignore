@@ -1,10 +1,14 @@
-.Rproj.user
-.Rhistory
-.RData
-.Ruserdata
+*.Rproj.user
+*.Rhistory
+*.RData
+*.Ruserdata
 Data/**
 *.png
 *.jpg
 *.html
+<<<<<<< HEAD
+=======
+.Rproj.user
+>>>>>>> 57c9ccc1008c290cc0c4067e7aee235339fdf867
 *.csv
 *.txt

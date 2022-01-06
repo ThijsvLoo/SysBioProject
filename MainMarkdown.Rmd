@@ -22,40 +22,70 @@ sampleInfo <- sampleInfo %>% mutate(
 geneTotExonLengths <- read.delim("./Data/MAGNET_exonLengths.txt", as.is = T, row.names = 1)
 ```
 
+<<<<<<< HEAD
 ```{python, error = F}
 import pandas as pd
 import seaborn as sns
+=======
+>>>>>>> 57c9ccc1008c290cc0c4067e7aee235339fdf867
 
+```{r convert cpm to fpkm values}
+all(rownames(geneTotExonLengths) == rownames(gxData)) # TRUE (just a check)
+cpm2fpkm <- function(x) {
+	geneTotExonLengths_kb <- geneTotExonLengths[, 1] / 1E3
+	.t <- 2^(x) / geneTotExonLengths_kb
+#	.t <- 2^(x) * 1E3 / geneTotExonLengths[, 1] # this does the same, but shorter
+}
+gxData_fpkm <- cpm2fpkm(gxData)
 ```
 
 differential gene expression
+<<<<<<< HEAD
 ```{r Differential Gene Expression, echo = F}
+=======
+```{r Differential Gene Expression}
+>>>>>>> 57c9ccc1008c290cc0c4067e7aee235339fdf867
 # Create ExpressionSet object
-eset <- ExpressionSet(assayData = data.matrix(gxData), phenoData = AnnotatedDataFrame(sampleInfo))
+DifferentialGeneExpressionCalc <- function(assayData, phenoData){
+  # Create ExpressionSet object
+  eset <- ExpressionSet(assayData = data.matrix(assayData), phenoData = AnnotatedDataFrame(phenoData))
+  design <- model.matrix(~0+Disease, data = pData(eset))
 
-design <- model.matrix(~0+Disease, data = pData(eset))
+  df <- data.frame(matrix(ncol = 0, nrow = length(as.matrix(assayData[1]))))
 
-# Create a contrasts matrix
-cm <- makeContrasts(
-  DonorVsPPCM = DiseaseDonor - DiseasePPCM, 
-  DonorVsHCM = DiseaseDonor - DiseaseHCM, 
+  
+  # print(design[,diseasDesignCol])
+  # statusTest <-
+  # print(design[,"DiseaseDonor"])
+  # Create a contrasts matrix
+  cm <- makeContrasts(
+  DonorVsPPCM = DiseaseDonor - DiseasePPCM,
+  DonorVsHCM = DiseaseDonor - DiseaseHCM,
   DonorVsDCM = DiseaseDonor - DiseaseDCM,
   levels = design)
+  
+  for(comparison in colnames(cm)){
+    # Fit the model
+    fit <- lmFit(eset, design)
+    # Fit the contrasts
+    fit2 <- contrasts.fit(fit, contrasts = cm[,comparison])
+    # Calculate the t-statistics for the contrasts
+    fit2 <- eBayes(fit2)
 
-# Fit the model
-fit <- lmFit(eset, design)
+    diffGenExprTestData <- topTable(fit2, adjust = "fdr", number = nrow(gxData))
+    diffGenExprTestDecision <- decideTests(fit2, adjust.method = "fdr", p.value = 0.05, lfc = 1)
+    colnames(diffGenExprTestData) <- paste(colnames(diffGenExprTestData), comparison, sep = "_")
+    colnames(diffGenExprTestDecision) <- paste(colnames(diffGenExprTestDecision), comparison, sep = "_")
 
-# Fit the contrasts
-fit2 <- contrasts.fit(fit, contrasts = cm)
+    df <- cbind(df, diffGenExprTestData, diffGenExprTestDecision)
+  }
+  df
+}
+test <- DifferentialGeneExpressionCalc(gxData, sampleInfo)
 
-# Calculate the t-statistics for the contrasts
-fit2 <- eBayes(fit2)
-
-# Summarize results
-diffGenExprTestData <- topTable(fit2, adjust = "fdr", number = nrow(gxData))
-diffGenExprTestDecision <- decideTests(fit2, adjust.method = "fdr", p.value = 0.05, lfc = 1)
-diffGenExprMerge <- merge(diffGenExprTestData, diffGenExprTestDecision, by="row.names",all.x=TRUE)  %>% column_to_rownames(var = "Row.names")
-summary(diffGenExprTestDecision)
+#remove objects that are no longer needed
+rm(eset, design, cm, fit, fit2)
+  
 ```
 
 ```{r biomart gene annotation}
@@ -65,8 +95,13 @@ mart <- useMart("ensembl")
 mart <- useDataset("hsapiens_gene_ensembl",mart)
 # listAttributes(mart) #to get a list of possible attributes
 
+<<<<<<< HEAD
 # get gene annotation data from ensembl database
 geneAnnotationData <- getBM(attributes = c("ensembl_gene_id", "entrezgene_id"), 
+=======
+#get gene annotation data from ensembl database
+geneAnnotationData <- getBM(attributes = c("ensembl_gene_id", "go_id", "entrezgene_id", "chromosome_name", "external_gene_name", "hgnc_symbol", "description"), 
+>>>>>>> 57c9ccc1008c290cc0c4067e7aee235339fdf867
                             mart = mart,
                             filters = "ensembl_gene_id",
                             values = rownames(gxData),
