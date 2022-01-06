@@ -1,8 +1,11 @@
-.Rproj.user
-.Rhistory
-.RData
-.Ruserdata
+*.Rproj.user
+*.Rhistory
+*.RData
+*.Ruserdata
 Data/**
 *.png
 *.jpg
 *.html
+.Rproj.user
+*.csv
+*.txt
