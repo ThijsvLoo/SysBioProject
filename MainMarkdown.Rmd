@@ -3,27 +3,32 @@ title: "MainMarkdown"
 output: html_document
 ---
 
-```{r load dependencies, echo = F}
+```{r setup, echo = F}
 library(tidyverse)
 library(limma)
 library(Biobase)
 library(biomaRt)
+library(WGCNA)
 ```
 
-```{r setup, include = F}
+```{r load data, include = F}
 gxData <- read.delim("./Data/MAGNET_GeneExpressionData_CPM_19112020.txt", as.is = T, row.names = 1)
 sampleInfo <- read.delim("./Data/MAGNET_SampleData_19112020.txt", as.is = T, row.names = 1)
+sampleInfo <- sampleInfo %>% mutate(
+  Disease = factor(Disease, levels = unique(Disease)),
+  Sex = factor(Sex, levels = unique(Sex)),
+  Ethnicity = factor(Ethnicity, levels = unique(Ethnicity))
+)
 geneTotExonLengths <- read.delim("./Data/MAGNET_exonLengths.txt", as.is = T, row.names = 1)
 ```
 
-```{python, echo = F}
+```{python, error = F}
 import pandas as pd
 import seaborn as sns
 
 ```
 
 differential gene expression
-
 ```{r Differential Gene Expression, echo = F}
 # Create ExpressionSet object
 eset <- ExpressionSet(assayData = data.matrix(gxData), phenoData = AnnotatedDataFrame(sampleInfo))
@@ -52,28 +57,280 @@ diffGenExprTestDecision <- decideTests(fit2, adjust.method = "fdr", p.value = 0.
 diffGenExprMerge <- merge(diffGenExprTestData, diffGenExprTestDecision, by="row.names",all.x=TRUE)  %>% column_to_rownames(var = "Row.names")
 summary(diffGenExprTestDecision)
 ```
-<<<<<<< HEAD
-```{r Gene Ontology and Gene Enrichment Analysis, echo = F}
-=======
+
 ```{r biomart gene annotation}
 
 mart <- useMart("ensembl")
-#set to use ensemble database for humans
+# set to use ensemble database for humans
 mart <- useDataset("hsapiens_gene_ensembl",mart)
 # listAttributes(mart) #to get a list of possible attributes
 
-#get gene annotation data from ensembl database
-geneAnnotationData <- getBM(attributes = c("ensembl_gene_id", "chromosome_name", "external_gene_name", "hgnc_symbol", "description"), 
+# get gene annotation data from ensembl database
+geneAnnotationData <- getBM(attributes = c("ensembl_gene_id", "entrezgene_id"), 
                             mart = mart,
                             filters = "ensembl_gene_id",
-                            values = rownames(gxData)
+                            values = rownames(gxData),
+                            uniqueRows = T
                             )
 ```
 
-```{r Gene Enrichment Analysis, echo = F}
+```{r Gene Ontology and Gene Enrichment Analysis, echo = F, error = F}
 
->>>>>>> 16e006bf38131e4ff2f72e79abfcb315a11d75db
+diffGenExprEntrezID <- diffGenExprMerge %>% rownames_to_column(var = "ensembl_gene_id") %>% right_join(geneAnnotationData, by = "ensembl_gene_id")
 
-goana
+goana(fit2, universe = NULL, species = "Hs", prior.prob = NULL, covariate=NULL,
+      plot=FALSE)
+
+getGeneKEGGLinks(species.KEGG = "hsa", convert = FALSE)
+getKEGGPathwayNames(species.KEGG = "hsa", remove=TRUE)
+kegga()
 
 ```
+
+```{r WGCNA, echo = F}
+# check if there are samples with missing data
+gsg = goodSamplesGenes(gxData, verbose = 3);
+gsg$allOK
+
+data.log <- as.data.frame(t(gxData))
+data.filtered.dcm = data.log[row.names(data.log) %in% row.names(sampleInfo),]
+
+# Cluster samples
+sampleTree = hclust(dist(t(gxData)), method = "average")
+
+# Convert traits to a color representation: white means low, red means high, grey means missing entry
+sampleInfo_Num <- sampleInfo %>% mutate(
+  Disease = as.numeric(Disease),
+  Sex = as.numeric(Sex),
+  Ethnicity = as.numeric(Ethnicity)
+)
+
+traitColors <- sampleInfo_Num %>% 
+  numbers2colors(commonLim = F, colors = viridisLite::viridis(n = length(unique(sampleInfo$Age)), option = "G", begin = 0.2, end = 0.8))
+
+# Plot the sample dendrogram and the colors underneath.
+plotDendroAndColors(sampleTree, traitColors,
+                    groupLabels = names(sampleInfo), cex.dendroLabels = 0.5, 
+                    main = "Sample dendrogram and trait heatmap")
+
+
+```
+
+#########################################
+Network construction and module detection
+#########################################
+
+```{r, echo = F}
+# Allow multi-threading within WGCNA. This helps speed up certain calculations.
+# At present this call is necessary for the code to work.
+# Any error here may be ignored but you may want to update WGCNA if you see one.
+# Caution: skip this line if you run RStudio or other third-party R environments. 
+# See note above.
+
+ enableWGCNAThreads()
+
+```
+
+```{r, echo = F}
+# Call the network topology analysis function
+powers = seq(1,15, by=2)
+sft = pickSoftThreshold(t(gxData), powerVector = powers, verbose = 5)
+
+#save(sft, file = "WGCNA-sft.RData")
+
+# Plot the results:
+sizeGrWindow(9, 5)
+par(mfrow = c(1,2));
+cex1 = 0.9;
+
+# Scale-free topology fit index as a function of the soft-thresholding power
+sft$fitIndices %>% ggplot(aes(x = Power, y = -sign(slope)*SFT.R.sq)) +
+  geom_text(aes(label = Power, color = "red")) + 
+  geom_hline(yintercept = 0.8, color = "red") +
+  xlab("Soft Threshold (power)") + 
+  ylab("Scale Free Topology Model Fit,signed R^2") +
+  theme_bw() + 
+  theme(
+    legend.position = "none"
+  )
+
+# Mean connectivity as a function of the soft-thresholding power
+sft$fitIndices %>% ggplot(aes(x = Power, y = mean.k.)) +
+  geom_text(aes(label = Power, color = "red")) + 
+  geom_hline(yintercept = 0.8, color = "red") +
+  xlab("Soft Threshold (power)") + 
+  ylab("Mean Connectivity") +
+  theme_bw() + 
+  theme(
+    legend.position = "none"
+  )
+
+```
+
+```{r Cluster Genes into Modules and Construct Network, eval = F}
+net = blockwiseModules(t(gxData), power = 6,
+                       TOMType = "unsigned", minModuleSize = 30,
+                       reassignThreshold = 0, mergeCutHeight = 0.25,
+                       numericLabels = TRUE, pamRespectsDendro = FALSE,
+                       saveTOMs = TRUE,
+                       saveTOMFileBase = "expTOM", 
+                       verbose = 3)
+```
+
+```{r Plot Module Dendrogramm}
+# open a graphics window
+sizeGrWindow(15, 9)
+# Convert labels to colors for plotting
+mergedColors = labels2colors(net$colors)
+# Plot the dendrogram and the module colors underneath
+plotDendroAndColors(net$dendrograms[[1]], mergedColors[net$blockGenes[[1]]],
+                    "Module colors",
+                    dendroLabels = FALSE, hang = 0.03,
+                    addGuide = TRUE, guideHang = 0.05)
+```
+
+```{r Retrieve Dendrogram Colors for Modules}
+moduleLabels = net$colors
+moduleColors = labels2colors(net$colors)
+table(moduleColors)
+MEs = net$MEs;
+geneTree = net$dendrograms[[1]]
+# save(MEs, moduleLabels, moduleColors, geneTree, file = "network-reconstruction.RData")
+```
+
+```{r Calculate Module Eigenvalues for Genes}
+# Define numbers of genes and samples
+nGenes = ncol(t(gxData));
+nSamples = nrow(t(gxData));
+# Recalculate MEs with color labels
+MEs0 = moduleEigengenes(t(gxData), moduleColors)$eigengenes
+MEs = orderMEs(MEs0)
+moduleTraitCor = cor(MEs, sampleInfo_Num, use = "p");
+moduleTraitPvalue = corPvalueStudent(moduleTraitCor, nSamples)
+```
+
+```{r Plot Module Heatmaps vs Covariates}
+sizeGrWindow(20,20)
+# Will display correlations and their p-values
+textMatrix = paste("cor = ", signif(moduleTraitCor, 2), " - pVal = ", signif(moduleTraitPvalue, 1), sep ="");
+dim(textMatrix) = dim(moduleTraitCor)
+par(mar = c(8, 8.5, 3, 3));
+
+# Display the correlation values within a heatmap plot
+labeledHeatmap(Matrix = moduleTraitCor,
+               xLabels = names(sampleInfo_Num),
+               yLabels = names(MEs),
+               ySymbols = names(MEs),
+               colorLabels = FALSE,
+               colors = blueWhiteRed(50),
+               textMatrix = textMatrix,
+               setStdMargins = FALSE,
+               cex.text = 0.3,
+               cex.lab.y = 0.5,
+               zlim = c(-1,1),
+               main = paste("Module-trait relationships"))
+```
+
+```{r Retrieve Module Correlation and Significance for each Gene (Module Membership)}
+# Define variable time containing the time column of datTrait
+disease <- sampleInfo_Num;
+names(disease) = "disease"
+# names (colors) of the modules
+modNames = substring(names(MEs), 3)
+
+geneModuleMembership = as.data.frame(cor(t(gxData), MEs, use = "p"));
+MMPvalue = as.data.frame(corPvalueStudent(as.matrix(geneModuleMembership), nSamples));
+
+names(geneModuleMembership) = paste("MM", modNames, sep="");
+names(MMPvalue) = paste("p.MM", modNames, sep="");
+
+# geneTraitSignificance = as.data.frame(cor(data.filtered.dcm, disease, use = "p"));
+geneTraitSignificance = as.data.frame(WGCNA::cor(t(gxData), disease, use = "p"));
+GSPvalue = as.data.frame(corPvalueStudent(as.matrix(geneTraitSignificance), nSamples));
+
+names(geneTraitSignificance) = paste("GS.", names(disease), sep="");
+names(GSPvalue) = paste("p.GS.", names(disease), sep="")
+```
+
+```{r Modulewise Plot Gene-Trait Correlation for Disease vs Gene Significance}
+modulesSigP <- moduleTraitPvalue %>% as.data.frame() %>% filter(Disease < 0.05*1e-8) %>% rownames()
+modulesSigCor <- moduleTraitCor %>% as.data.frame() %>% filter("Disease" >= 0.5 | "Disease" <= -0.5) %>% rownames()
+modules <- sub("^ME","" , modulesSigCor)
+
+sizeGrWindow(9, 3);
+par(mfrow = c(1,3));
+for(module in modules) {
+  column = base::match(module, modNames);
+  moduleGenes = moduleColors==module;
+
+  verboseScatterplot(abs(geneModuleMembership[moduleGenes, column]),
+                     abs(geneTraitSignificance[moduleGenes, 1]),
+                     xlab = paste("Module membership (MM, ", module, ")", sep=""),
+                     ylab = "Gene significance (GS) for disease",
+                     main = paste("MM vs. GS\n"),
+                     cex.main = 1.2, cex.lab = 1.2, cex.axis = 1.2, col = module,
+                     ylim = c(0, 1),
+                     xlim = c(0, 1)
+                     )
+}
+```
+
+```{r}
+# Create the starting data frame
+geneInfo0 = data.frame(Gene.ID = colnames(t(gxData)),
+                      moduleColor = moduleColors,
+                      geneTraitSignificance,
+                      GSPvalue)
+
+# Order modules by their significance for time
+modOrder = order(-abs(cor(MEs, disease, use = "p")));
+
+# Add module membership information in the chosen order
+for (mod in 1:ncol(geneModuleMembership)) {
+  oldNames = names(geneInfo0)
+  geneInfo0 = data.frame(geneInfo0, geneModuleMembership[, modOrder[mod]], 
+                         MMPvalue[, modOrder[mod]]);
+  names(geneInfo0) = c(oldNames, paste("MM.", modNames[modOrder[mod]], sep=""),
+                       paste("p.MM.", modNames[modOrder[mod]], sep=""))
+}
+# Order the genes in the geneInfo variable first by module color, then by geneTraitSignificance
+geneOrder = order(geneInfo0$moduleColor, -abs(geneInfo0$GS.disease));
+geneInfo = geneInfo0[geneOrder, ]
+```
+
+```{r}
+write.csv(geneInfo, file = "geneInfo.csv", row.names = FALSE)
+```
+
+###################################
+Network visualization 
+###################################
+
+```{r}
+# Recalculate topological overlap if needed
+TOM = TOMsimilarityFromExpr(t(gxData), power = 6);
+#save(TOM, file = "WGCNA-TOM.RData")
+
+# Select modules
+#modules = c("black");
+#modules = c("brown");
+#modules = c("red","black","brown");
+# Select module probes
+probes = names(t(gxData))
+inModule = is.finite(match(moduleColors, modules));
+modProbes = probes[inModule];
+# Select the corresponding Topological Overlap
+modTOM = TOM[inModule, inModule];
+dimnames(modTOM) = list(modProbes, modProbes)
+# Export the network into edge and node list files Cytoscape can read
+cyt = exportNetworkToCytoscape(modTOM,
+  edgeFile = paste("CytoscapeInput-edges-", paste(modules, collapse="-"), ".txt", sep=""),
+  nodeFile = paste("CytoscapeInput-nodes-", paste(modules, collapse="-"), ".txt", sep=""),
+  weighted = TRUE,
+  threshold = 0.1,
+  nodeNames = modProbes,
+  nodeAttr = moduleColors[inModule])
+
+```
+
+
