@@ -39,23 +39,29 @@ gxData_fpkm <- cpm2fpkm(gxData)
 
 ```{r Differential Gene Expression}
 # Create ExpressionSet object
-DifferentialGeneExpressionCalc <- function(assayData, phenoData) {
+DifferentialGeneExpressionCalc <- function(assayData, phenoData, includePPCM = T) {
   # Create ExpressionSet object
   eset <- ExpressionSet(assayData = data.matrix(assayData), phenoData = AnnotatedDataFrame(phenoData))
   design <- model.matrix(~0+Disease, data = pData(eset))
 
   df <- data.frame(matrix(ncol = 0, nrow = length(as.matrix(assayData[1]))))
 
-  
   # print(design[,diseasDesignCol])
   # statusTest <-
   # print(design[,"DiseaseDonor"])
   # Create a contrasts matrix
+  if(includePPCM == T) {
   cm <- makeContrasts(
   DonorVsPPCM = DiseaseDonor - DiseasePPCM,
   DonorVsHCM = DiseaseDonor - DiseaseHCM,
   DonorVsDCM = DiseaseDonor - DiseaseDCM,
   levels = design)
+  } else {
+    cm <- makeContrasts(
+  DonorVsHCM = DiseaseDonor - DiseaseHCM,
+  DonorVsDCM = DiseaseDonor - DiseaseDCM,
+  levels = design)
+  }
   
   for(comparison in colnames(cm)){
     # Fit the model
@@ -68,15 +74,38 @@ DifferentialGeneExpressionCalc <- function(assayData, phenoData) {
     diffGenExprTestData <- topTable(fit2, adjust = "fdr", number = nrow(gxData))
     diffGenExprTestDecision <- decideTests(fit2, adjust.method = "fdr", p.value = 0.05, lfc = 1)
     colnames(diffGenExprTestData) <- paste(colnames(diffGenExprTestData), comparison, sep = "_")
-    colnames(diffGenExprTestDecision) <- paste(colnames(diffGenExprTestDecision), comparison, sep = "_")
+    colnames(diffGenExprTestDecision) <- paste("decideTests", comparison, sep = "_")
 
     df <- cbind(df, diffGenExprTestData, diffGenExprTestDecision)
   }
   df
 }
-test <- DifferentialGeneExpressionCalc(gxData, sampleInfo)
+
+DEA_donorVsDCM <- DifferentialGeneExpressionCalc(gxData, sampleInfo)
 
 #remove objects that are no longer needed
+
+```
+
+```{r DEA in male and female DCM patients}
+# split data into male | female
+sampleInfoMale <- sampleInfo %>% filter(Sex == "Male") %>% 
+  mutate(Disease = factor(Disease)) #, Disease == "DCM" | Disease == "Donor")
+gxDataMale <- gxData %>% select(rownames(sampleInfoMale))
+
+sampleInfoFemale <- sampleInfo %>% filter(Sex == "Female") #, Disease == "DCM" | Disease == "Donor")
+gxDataFemale <- gxData %>% select(rownames(sampleInfoFemale))
+
+# get differentially expressed genes for male and female
+DEA_Male <- DifferentialGeneExpressionCalc(gxDataMale, sampleInfoMale, includePPCM = F)
+DEA_Female <- DifferentialGeneExpressionCalc(gxDataFemale, sampleInfoFemale)
+
+# filter for up/down-regulated genes in male and female patients
+DEA_MaleDCM <- DEA_Male %>% filter(decideTests_DonorVsDCM != 0) %>% select(grep("DCM", colnames(DEA_MaleDCM))) %>% arrange(desc("logFC_DonorVsDCM"))
+DEA_FemaleDCM <- DEA_Female %>% filter(decideTests_DonorVsDCM != 0) %>% select(grep("DCM", colnames(DEA_MaleDCM)))  %>% arrange(desc("logFC_DonorVsDCM"))
+
+write.csv(rownames(DEA_MaleDCM), file = "diffExpGenes_MaleDCM.csv")
+write.csv(rownames(DEA_FemaleDCM), file = "diffExpGenes_FemaleDCM.csv")
 
 ```
 
