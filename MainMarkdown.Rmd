@@ -66,6 +66,7 @@ DifferentialGeneExpressionCalc <- function(assayData, phenoData, includePPCM = T
   for(comparison in colnames(cm)){
     # Fit the model
     fit <- lmFit(eset, design)
+# nice    
     # Fit the contrasts
     fit2 <- contrasts.fit(fit, contrasts = cm[,comparison])
     # Calculate the t-statistics for the contrasts
@@ -152,11 +153,14 @@ uniqEntrezGenes <- geneAnnotationData %>% select(c("ensembl_gene_id", "entrezgen
 
 uniqEntrezGenes <- geneAnnotationData %>% select(c("ensembl_gene_id", "entrezgene_id")) %>% distinct() %>% arrange(ensembl_gene_id, entrezgene_id) %>% filter(!duplicated(ensembl_gene_id)) %>% arrange(entrezgene_id, ensembl_gene_id) %>% filter(!duplicated(entrezgene_id), !is.na(entrezgene_id))
 
-goana(uniqEntrezGenes$entrezgene_id, species = "Hs")
+goana(uniqEntrezGenes$entrezgene_id, species = "Hs") %>% view()
 
-getGeneKEGGLinks(species.KEGG = "hsa", convert = FALSE)
-getKEGGPathwayNames(species.KEGG = "hsa", remove=TRUE)
-kegga()
+gxDataEntrez <- gxData %>% rownames_to_column(var = "ensembl_gene_id") %>% filter(ensembl_gene_id %in% uniqEntrezGenes$ensembl_gene_id) %>% left_join(uniqEntrezGenes, by = "ensembl_gene_id") %>% select(-ensembl_gene_id) %>% column_to_rownames(var = "entrezgene_id")
+
+DEAentrez <- DifferentialGeneExpressionCalc(gxDataEntrez, sampleInfo, saveResultsOnly = F)
+
+goana(DEAentrez$fittedModel)
+kegga(DEAentrez$fittedModel)
 
 ```
 
