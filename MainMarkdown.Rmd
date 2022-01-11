@@ -100,15 +100,13 @@ gxDataMale <- gxData %>% select(rownames(sampleInfoMale))
 sampleInfoFemale <- sampleInfo %>% filter(Sex == "Female")
 gxDataFemale <- gxData %>% select(rownames(sampleInfoFemale))
 
-# get differentially expressed genes for male and female
+# get differential gene expression data for male and female
 DEA_Male <- DifferentialGeneExpressionCalc(gxDataMale, sampleInfoMale, includePPCM = F, saveResultsOnly = F)
 DEA_Female <- DifferentialGeneExpressionCalc(gxDataFemale, sampleInfoFemale, saveResultsOnly = F)
 
 # filter for up/down-regulated genes in male and female patients and rank by logFC
-DEA_MaleDCM <- DEA_Male$results %>% #filter(decideTests_DonorVsDCM != 0) %>% 
-  select(grep("DCM", colnames(DEA_Male$results))) %>% mutate(logFC_DonorVsDCM = abs(logFC_DonorVsDCM)) %>% arrange(desc("logFC_DonorVsDCM"))
-DEA_FemaleDCM <- DEA_Female$results %>% #filter(decideTests_DonorVsDCM != 0) %>% 
-  select(grep("DCM", colnames(DEA_Female$results)))  %>% arrange(desc("logFC_DonorVsDCM"))
+DEA_MaleDCM <- DEA_Male$results %>% select(grep("DCM", colnames(DEA_Male$results))) %>% mutate(logFC_DonorVsDCM = abs(logFC_DonorVsDCM)) %>% arrange(desc("logFC_DonorVsDCM"))
+DEA_FemaleDCM <- DEA_Female$results %>% select(grep("DCM", colnames(DEA_Female$results)))  %>% arrange(desc("logFC_DonorVsDCM"))
 
 DEA_Male <- c(DEA_Male, "rankedResultsDCM" = list(DEA_MaleDCM))
 DEA_Female <- c(DEA_Female, "rankedResultsDCM" = list(DEA_FemaleDCM))
@@ -145,14 +143,16 @@ geneAnnotationData <- getBM(attributes = c("ensembl_gene_id",
 
 ```
 
+```{r filter data}
+uniqEntrezGenes <- geneAnnotationData %>% select(c("ensembl_gene_id", "entrezgene_id")) %>% distinct() %>% arrange(ensembl_gene_id, entrezgene_id) %>% filter(!duplicated(ensembl_gene_id)) %>% arrange(entrezgene_id, ensembl_gene_id) %>% filter(!duplicated(entrezgene_id), !is.na(entrezgene_id))
+```
+
+
 ```{r Gene Ontology and Gene Enrichment Analysis, error = F, eval = F}
 
-uniqEntrezGenes <- geneAnnotationData %>% select(c("ensembl_gene_id", "entrezgene_id")) %>% distinct() %>% filter()
-  
-  column_to_rownames(var = "ensembl_gene_id") %>% right_join(DEA_Male$rankedResultsDCM, by = row.names)
+uniqEntrezGenes <- geneAnnotationData %>% select(c("ensembl_gene_id", "entrezgene_id")) %>% distinct() %>% arrange(ensembl_gene_id, entrezgene_id) %>% filter(!duplicated(ensembl_gene_id)) %>% arrange(entrezgene_id, ensembl_gene_id) %>% filter(!duplicated(entrezgene_id), !is.na(entrezgene_id))
 
-
-goana(DEA_Male$fittedModel, geneid = uniqueEntrezGenes$entrezgene_id)
+goana(uniqEntrezGenes$entrezgene_id, species = "Hs")
 
 getGeneKEGGLinks(species.KEGG = "hsa", convert = FALSE)
 getKEGGPathwayNames(species.KEGG = "hsa", remove=TRUE)
