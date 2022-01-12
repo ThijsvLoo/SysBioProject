@@ -144,26 +144,60 @@ geneAnnotationData <- getBM(attributes = c("ensembl_gene_id",
 
 ```
 
-```{r filter data}
-uniqEntrezGenes <- geneAnnotationData %>% select(c("ensembl_gene_id", "entrezgene_id")) %>% distinct() %>% arrange(ensembl_gene_id, entrezgene_id) %>% filter(!duplicated(ensembl_gene_id)) %>% arrange(entrezgene_id, ensembl_gene_id) %>% filter(!duplicated(entrezgene_id), !is.na(entrezgene_id))
+```{r subset sampleInfo by each combination of co-variates}
+# filter sampleInfo, split subjects into groups by each co-variate
+sampleInfoSubsets <- list()
+sampleInfoDonor <- sampleInfo %>% filter(Disease == "Donor")
+
+for (Dis in c("DCM", "HCM", "PPCM")) {
+  sampleInfoDis <- sampleInfo %>% filter(Disease == Dis) 
+  sampleInfoDis <- rbind(sampleInfoDis, sampleInfoDonor) %>% mutate(Disease = factor(Disease))
+  for (Sx in levels(sampleInfo$Sex)) {
+    sampleInfoSx <- sampleInfoDis %>% filter(Sex == Sx) %>% mutate(Sex = factor(Sex, levels = Sx))
+    for (Eth in levels(sampleInfo$Ethnicity)) {
+      sampleInfoEth <- sampleInfoSx %>% filter(Ethnicity == Eth) %>% mutate(Ethnicity = factor(Ethnicity, levels = Eth))
+      sampleInfoSubsets[[paste(Dis, Sx, Eth, sep = "_")]] <- data.frame(sampleInfoEth)
+    }
+  }
+}
+
+# remove PPCM and Donor sets
+sampleInfoDcmHcm <- sampleInfoSubsets[-c(grep("PPCM", names(sampleInfoSubsets)))]
+
+rm(sampleInfoSubsets, sampleInfoDonor, sampleInfoDis, sampleInfoEth, sampleInfoSx, Dis, Sx, Eth)
 ```
 
-
+## GO and KEGG analysis
 ```{r Gene Ontology and Gene Enrichment Analysis, error = F, eval = F}
 
 uniqEntrezGenes <- geneAnnotationData %>% select(c("ensembl_gene_id", "entrezgene_id")) %>% distinct() %>% arrange(ensembl_gene_id, entrezgene_id) %>% filter(!duplicated(ensembl_gene_id)) %>% arrange(entrezgene_id, ensembl_gene_id) %>% filter(!duplicated(entrezgene_id), !is.na(entrezgene_id))
 
-goana(uniqEntrezGenes$entrezgene_id, species = "Hs") %>% view()
-
 gxDataEntrez <- gxData %>% rownames_to_column(var = "ensembl_gene_id") %>% filter(ensembl_gene_id %in% uniqEntrezGenes$ensembl_gene_id) %>% left_join(uniqEntrezGenes, by = "ensembl_gene_id") %>% select(-ensembl_gene_id) %>% column_to_rownames(var = "entrezgene_id")
 
+# GO and KEGG analysis for all subjects
 DEAentrez <- DifferentialGeneExpressionCalc(gxDataEntrez, sampleInfo, saveResultsOnly = F)
 
-goana(DEAentrez$fittedModel)
-kegga(DEAentrez$fittedModel)
+GOResuls <- goana(DEAentrez$fittedModel)
+KEGGResults <- kegga(DEAentrez$fittedModel)
 
+# GO and KEGG analysis for each sampleInfoDcmHcm
+pathwaySubset <- list()
+
+for (subs in names(sampleInfoDcmHcm)) {
+  SInfoSubs <- as.data.frame(sampleInfoDcmHcm[paste(subs)], col.names = "")
+  gxDataSubs <- gxDataEntrez %>% dplyr::select(rownames(SInfoSubs))
+  DEAentrezSubs <- DifferentialGeneExpressionCalc(gxDataSubs, SInfoSubs, includePPCM = F, saveResultsOnly = F)
+  GOsubs <- goana(DEAentrezSubs)
+  KEGGsubs <- kegga(DEAentrezSubs)
+  subsetData <- list("DEAResults" = DEAentrezSubs, "GOResults" = GOsubs, "KEGGResults" = KEGGsubs)
+  pathwaySubset <- c(pathwaySubset, subsetData)
+  rm(subsetData)
+}
+names(pathwaySubset) <- names(sampleInfoSubset)
+rm(SInfoSubs, gxDataSubs, DEAentrezSubs, GOsubs, KEGGsubs)
 ```
 
+## start weighed gene coexpression network analysis
 ```{r WGCNA, eval = F}
 # check if there are samples with missing data
 gsg = goodSamplesGenes(gxData, verbose = 3);
@@ -378,18 +412,7 @@ geneInfo <- geneInfo0 %>% group_by(moduleColor) %>% arrange(-abs(GS.Disease), .b
 write.csv(geneInfo, file = "geneInfo.csv", row.names = FALSE)
 ```
 
-###################################
-Network visualization 
-###################################
-```{r allow multithreading, eval = F}
-# Allow multi-threading within WGCNA. This helps speed up certain calculations.
-# At present this call is necessary for the code to work.
-# Any error here may be ignored but you may want to update WGCNA if you see one.
-# Caution: skip this line if you run RStudio or other third-party R environments. 
-# See note above.
-enableWGCNAThreads()
-```
-
+## export network files for use in cytoscape
 ```{r Visualize Network, eval = F}
 # Recalculate topological overlap if needed
 TOM = TOMsimilarityFromExpr(t(gxData), power = 6);
