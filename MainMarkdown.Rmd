@@ -41,27 +41,50 @@ gxData_fpkm <- cpm2fpkm(gxData)
 ##Differential Gene Expression
 ```{r Differential Gene Expression}
 # Create ExpressionSet object
-DifferentialGeneExpressionCalc <- function(assayData, phenoData, includePPCM = T, saveResultsOnly = T) {
+DifferentialGeneExpressionCalc <- function(assayData, phenoData, saveResultsOnly = T) {
   # Create ExpressionSet object
   eset <- ExpressionSet(assayData = data.matrix(assayData), phenoData = AnnotatedDataFrame(phenoData))
   design <- model.matrix(~0+Disease, data = pData(eset))
 
   df <- data.frame(matrix(ncol = 0, nrow = length(as.matrix(assayData[1]))))
 
+  DisVec <- unique(phenoData$Disease)
   # print(design[,diseasDesignCol])
   # statusTest <-
   # print(design[,"DiseaseDonor"])
   # Create a contrasts matrix
-  if(includePPCM == T) {
+  if(all(c("DCM", "HCM", "PPCM") %in% DisVec) == T) {
   cm <- makeContrasts(
   DonorVsPPCM = DiseaseDonor - DiseasePPCM,
   DonorVsHCM = DiseaseDonor - DiseaseHCM,
   DonorVsDCM = DiseaseDonor - DiseaseDCM,
   levels = design)
-  } else {
+  } else if (all(c("DCM", "HCM") %in% DisVec) == T) {
     cm <- makeContrasts(
   DonorVsHCM = DiseaseDonor - DiseaseHCM,
   DonorVsDCM = DiseaseDonor - DiseaseDCM,
+  levels = design)
+  } else if (all(c("DCM", "PPCM") %in% DisVec) == T) {
+    cm <- makeContrasts(
+  DonorVsPPCM = DiseaseDonor - DiseasePPCM,
+  DonorVsDCM = DiseaseDonor - DiseaseDCM,
+  levels = design)
+  } else if (all(c("PPCM", "HCM") %in% DisVec) == T) {
+    cm <- makeContrasts(
+  DonorVsHCM = DiseaseDonor - DiseaseHCM,
+  DonorVsPPCM = DiseaseDonor - DiseasePPCM,
+  levels = design)
+  } else if (("DCM" %in% DisVec) == T) {
+    cm <- makeContrasts(
+  DonorVsDCM = DiseaseDonor - DiseaseDCM,
+  levels = design)
+  } else if (("HCM" %in% DisVec) == T) {
+    cm <- makeContrasts(
+  DonorVsHCM = DiseaseDonor - DiseaseHCM,
+  levels = design)
+  } else if (("PPCM" %in% DisVec) == T) {
+    cm <- makeContrasts(
+  DonorVsPPCM = DiseaseDonor - DiseasePPCM,
   levels = design)
   }
   
@@ -87,14 +110,13 @@ DifferentialGeneExpressionCalc <- function(assayData, phenoData, includePPCM = T
   } else {
     list("expressionSet" = eset, "designMatrix" = design, "fittedModel" = fit2, "results" = df)
   }
-  
 }
 
-DEA_donorVsDCM <- DifferentialGeneExpressionCalc(gxData, sampleInfo)
+DEA_DonorVsAll <- DifferentialGeneExpressionCalc(gxData, sampleInfo)
 
 ```
 
-```{r DEA in male and female DCM patients}
+```{r DEA in male and female DCM patients, eval = F}
 # split data into male | female
 sampleInfoMale <- sampleInfo %>% filter(Sex == "Male") %>% 
   mutate(Disease = factor(Disease))
@@ -104,7 +126,7 @@ sampleInfoFemale <- sampleInfo %>% filter(Sex == "Female")
 gxDataFemale <- gxData %>% select(rownames(sampleInfoFemale))
 
 # get differential gene expression data for male and female
-DEA_Male <- DifferentialGeneExpressionCalc(gxDataMale, sampleInfoMale, includePPCM = F, saveResultsOnly = F)
+DEA_Male <- DifferentialGeneExpressionCalc(gxDataMale, sampleInfoMale, saveResultsOnly = F)
 DEA_Female <- DifferentialGeneExpressionCalc(gxDataFemale, sampleInfoFemale, saveResultsOnly = F)
 
 # filter for up/down-regulated genes in male and female patients and rank by logFC
@@ -120,6 +142,31 @@ rm(DEA_MaleDCM, DEA_FemaleDCM)
 write.table(rownames(DEA_Male$rankedResultsDCM), file = "diffExpGenes_MaleDCM.txt", quote = F, row.names = F, col.names = F)
 write.table(rownames(DEA_Female$rankedResultsDCM), file = "diffExpGenes_FemaleDCM.txt", quote = F, row.names = F, col.names = F)
 
+```
+
+## DEA by subsets
+```{r subset sampleInfo by each combination of co-variates}
+# filter sampleInfo, split subjects into groups by each co-variate
+sampleInfoSubsets <- list()
+sampleInfoDonor <- sampleInfo %>% filter(Disease == "Donor")
+
+for (Dis in c("DCM", "HCM", "PPCM")) {
+  sampleInfoDis <- sampleInfo %>% filter(Disease == Dis) 
+  sampleInfoDis <- rbind(sampleInfoDis, sampleInfoDonor) %>% mutate(Disease = factor(Disease))
+  for (Sx in levels(sampleInfoDis$Sex)) {
+    sampleInfoSx <- sampleInfoDis %>% filter(Sex == Sx) %>% mutate(Sex = factor(Sex, levels = Sx))
+    for (Eth in levels(sampleInfoSx$Ethnicity)) {
+      sampleInfoEth <- sampleInfoSx %>% filter(Ethnicity == Eth) %>% mutate(Ethnicity = factor(Ethnicity, levels = Eth), Disease = factor(Disease, levels = unique(Disease)))
+      sampleInfoSubsets[[paste(Dis, Sx, Eth, sep = "_")]] <- data.frame(sampleInfoEth)
+    }
+  }
+}
+
+# remove PPCM and Donor sets
+sampleInfoTemp <- sampleInfoSubsets[-c(grep("PPCM", names(sampleInfoSubsets)))]
+sampleInfoDcmHcm <- sampleInfoTemp[-grep("HCM_Male_African.American", names(sampleInfoTemp))]
+
+rm(sampleInfoTemp, sampleInfoSubsets, sampleInfoDonor, sampleInfoDis, sampleInfoEth, sampleInfoSx, Dis, Sx, Eth)
 ```
 
 ##Gene Annotation Biomart
@@ -147,40 +194,8 @@ geneAnnotationData <- getBM(attributes = c("ensembl_gene_id",
 
 ```
 
-<<<<<<< HEAD
-```{r subset sampleInfo by each combination of co-variates}
-# filter sampleInfo, split subjects into groups by each co-variate
-sampleInfoSubsets <- list()
-sampleInfoDonor <- sampleInfo %>% filter(Disease == "Donor")
-
-for (Dis in c("DCM", "HCM", "PPCM")) {
-  sampleInfoDis <- sampleInfo %>% filter(Disease == Dis) 
-  sampleInfoDis <- rbind(sampleInfoDis, sampleInfoDonor) %>% mutate(Disease = factor(Disease))
-  for (Sx in levels(sampleInfo$Sex)) {
-    sampleInfoSx <- sampleInfoDis %>% filter(Sex == Sx) %>% mutate(Sex = factor(Sex, levels = Sx))
-    for (Eth in levels(sampleInfo$Ethnicity)) {
-      sampleInfoEth <- sampleInfoSx %>% filter(Ethnicity == Eth) %>% mutate(Ethnicity = factor(Ethnicity, levels = Eth))
-      sampleInfoSubsets[[paste(Dis, Sx, Eth, sep = "_")]] <- data.frame(sampleInfoEth)
-    }
-  }
-}
-
-# remove PPCM and Donor sets
-sampleInfoDcmHcm <- sampleInfoSubsets[-c(grep("PPCM", names(sampleInfoSubsets)))]
-
-rm(sampleInfoSubsets, sampleInfoDonor, sampleInfoDis, sampleInfoEth, sampleInfoSx, Dis, Sx, Eth)
-```
-
 ## GO and KEGG analysis
-=======
-```{r filter Duplicate data}
-uniqEntrezGenes <- geneAnnotationData %>% select(c("ensembl_gene_id", "entrezgene_id")) %>% distinct() %>% arrange(ensembl_gene_id, entrezgene_id) %>% filter(!duplicated(ensembl_gene_id)) %>% arrange(entrezgene_id, ensembl_gene_id) %>% filter(!duplicated(entrezgene_id), !is.na(entrezgene_id))
-```
-
-##Gene Ontology
->>>>>>> 67b8d2593bdfef3d74e54c23d7f031ba83966f23
 ```{r Gene Ontology and Gene Enrichment Analysis, error = F, eval = F}
-
 uniqEntrezGenes <- geneAnnotationData %>% select(c("ensembl_gene_id", "entrezgene_id")) %>% distinct() %>% arrange(ensembl_gene_id, entrezgene_id) %>% filter(!duplicated(ensembl_gene_id)) %>% arrange(entrezgene_id, ensembl_gene_id) %>% filter(!duplicated(entrezgene_id), !is.na(entrezgene_id))
 
 gxDataEntrez <- gxData %>% rownames_to_column(var = "ensembl_gene_id") %>% filter(ensembl_gene_id %in% uniqEntrezGenes$ensembl_gene_id) %>% left_join(uniqEntrezGenes, by = "ensembl_gene_id") %>% select(-ensembl_gene_id) %>% column_to_rownames(var = "entrezgene_id")
@@ -188,13 +203,8 @@ gxDataEntrez <- gxData %>% rownames_to_column(var = "ensembl_gene_id") %>% filte
 # GO and KEGG analysis for all subjects
 DEAentrez <- DifferentialGeneExpressionCalc(gxDataEntrez, sampleInfo, saveResultsOnly = F)
 
-<<<<<<< HEAD
-GOResuls <- goana(DEAentrez$fittedModel)
-KEGGResults <- kegga(DEAentrez$fittedModel)
-=======
 GOResults <- goana(DEAentrez$fittedModel)
 kEGGResults <- kegga(DEAentrez$fittedModel)
->>>>>>> 67b8d2593bdfef3d74e54c23d7f031ba83966f23
 
 # GO and KEGG analysis for each sampleInfoDcmHcm
 pathwaySubset <- list()
@@ -202,20 +212,16 @@ pathwaySubset <- list()
 for (subs in names(sampleInfoDcmHcm)) {
   SInfoSubs <- as.data.frame(sampleInfoDcmHcm[paste(subs)], col.names = "")
   gxDataSubs <- gxDataEntrez %>% dplyr::select(rownames(SInfoSubs))
-  DEAentrezSubs <- DifferentialGeneExpressionCalc(gxDataSubs, SInfoSubs, includePPCM = F, saveResultsOnly = F)
-  GOsubs <- goana(DEAentrezSubs)
-  KEGGsubs <- kegga(DEAentrezSubs)
+  DEAentrezSubs <- DifferentialGeneExpressionCalc(gxDataSubs, SInfoSubs, saveResultsOnly = F)
+  GOsubs <- goana(DEAentrezSubs$fittedModel)
+  KEGGsubs <- kegga(DEAentrezSubs$fittedModel)
   subsetData <- list("DEAResults" = DEAentrezSubs, "GOResults" = GOsubs, "KEGGResults" = KEGGsubs)
-  pathwaySubset <- c(pathwaySubset, subsetData)
+  pathwaySubset <- c(pathwaySubset, list(subsetData))
   rm(subsetData)
 }
-names(pathwaySubset) <- names(sampleInfoSubset)
+names(pathwaySubset) <- names(sampleInfoDcmHcm)
 rm(SInfoSubs, gxDataSubs, DEAentrezSubs, GOsubs, KEGGsubs)
 ```
-
-<<<<<<< HEAD
-## start weighed gene coexpression network analysis
-=======
 
 WARNING: generates lots of files, use at own discretion
 ```{r}
@@ -228,8 +234,7 @@ foldchanges <- DEAentrez$results$logFC_DonorVsDCM
 tmp <- sapply(keggresids, function(pid) pathview(gene.data=foldchanges, pathway.id=pid, species="hsa"))
 ```
 
-##WGCNA
->>>>>>> 67b8d2593bdfef3d74e54c23d7f031ba83966f23
+## start weighed gene coexpression network analysis
 ```{r WGCNA, eval = F}
 # check if there are samples with missing data
 gsg = goodSamplesGenes(gxData, verbose = 3);
@@ -259,10 +264,7 @@ plotDendroAndColors(sampleTree, traitColors,
 
 ```
 
-#########################################
-##Network construction and module detection
-#########################################
-
+## Network construction and module detection
 ```{r enable multithreading, eval = F}
 # Allow multi-threading within WGCNA. This helps speed up certain calculations.
 # At present this call is necessary for the code to work.
@@ -444,22 +446,7 @@ geneInfo <- geneInfo0 %>% group_by(moduleColor) %>% arrange(-abs(GS.Disease), .b
 write.csv(geneInfo, file = "geneInfo.csv", row.names = FALSE)
 ```
 
-<<<<<<< HEAD
 ## export network files for use in cytoscape
-=======
-###################################
-##Network visualization 
-###################################
-```{r allow multithreading, eval = F}
-# Allow multi-threading within WGCNA. This helps speed up certain calculations.
-# At present this call is necessary for the code to work.
-# Any error here may be ignored but you may want to update WGCNA if you see one.
-# Caution: skip this line if you run RStudio or other third-party R environments. 
-# See note above.
-enableWGCNAThreads()
-```
-
->>>>>>> 67b8d2593bdfef3d74e54c23d7f031ba83966f23
 ```{r Visualize Network, eval = F}
 # Recalculate topological overlap if needed
 TOM = TOMsimilarityFromExpr(t(gxData), power = 6);
