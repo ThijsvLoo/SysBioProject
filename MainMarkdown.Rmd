@@ -147,11 +147,11 @@ geneAnnotationData <- getBM(attributes = c("ensembl_gene_id",
 
 ```
 
-```{r filter data}
+```{r filter Duplicate data}
 uniqEntrezGenes <- geneAnnotationData %>% select(c("ensembl_gene_id", "entrezgene_id")) %>% distinct() %>% arrange(ensembl_gene_id, entrezgene_id) %>% filter(!duplicated(ensembl_gene_id)) %>% arrange(entrezgene_id, ensembl_gene_id) %>% filter(!duplicated(entrezgene_id), !is.na(entrezgene_id))
 ```
 
-##gene ontology
+##Gene Ontology
 ```{r Gene Ontology and Gene Enrichment Analysis, error = F, eval = F}
 
 uniqEntrezGenes <- geneAnnotationData %>% select(c("ensembl_gene_id", "entrezgene_id")) %>% distinct() %>% arrange(ensembl_gene_id, entrezgene_id) %>% filter(!duplicated(ensembl_gene_id)) %>% arrange(entrezgene_id, ensembl_gene_id) %>% filter(!duplicated(entrezgene_id), !is.na(entrezgene_id))
@@ -167,6 +167,19 @@ kEGGResults <- kegga(DEAentrez$fittedModel)
 
 ```
 
+
+WARNING: generates lots of files, use at own discretion
+```{r}
+# Define plotting function for applying later
+# plot_pathway <- function(pid) pathview(gene.data=foldchanges, pathway.id=pid, species="Hs", new.signature=FALSE)
+
+keggresids <- substr(rownames(kEGGResults), 6, 13)
+foldchanges <- DEAentrez$results$logFC_DonorVsDCM
+# plot multiple pathways (plots saved to disk and returns a throwaway list object)
+tmp <- sapply(keggresids, function(pid) pathview(gene.data=foldchanges, pathway.id=pid, species="hsa"))
+```
+
+##WGCNA
 ```{r WGCNA, eval = F}
 # check if there are samples with missing data
 gsg = goodSamplesGenes(gxData, verbose = 3);
