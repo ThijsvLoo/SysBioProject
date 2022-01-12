@@ -2,12 +2,13 @@
 title: "MainMarkdown"
 output: html_document
 ---
-
+##Setup
 ```{r setup}
 library(limma)
 library(Biobase)
 library(biomaRt)
 library(WGCNA)
+library(pathview)
 library(tidyverse)
 ```
 
@@ -37,6 +38,7 @@ cpm2fpkm <- function(x) {
 gxData_fpkm <- cpm2fpkm(gxData)
 ```
 
+##Differential Gene Expression
 ```{r Differential Gene Expression}
 # Create ExpressionSet object
 DifferentialGeneExpressionCalc <- function(assayData, phenoData, includePPCM = T, saveResultsOnly = T) {
@@ -120,6 +122,7 @@ write.table(rownames(DEA_Female$rankedResultsDCM), file = "diffExpGenes_FemaleDC
 
 ```
 
+##Gene Annotation Biomart
 ```{r biomart gene annotation}
 
 mart <- useMart("ensembl")
@@ -144,6 +147,7 @@ geneAnnotationData <- getBM(attributes = c("ensembl_gene_id",
 
 ```
 
+<<<<<<< HEAD
 ```{r subset sampleInfo by each combination of co-variates}
 # filter sampleInfo, split subjects into groups by each co-variate
 sampleInfoSubsets <- list()
@@ -168,6 +172,13 @@ rm(sampleInfoSubsets, sampleInfoDonor, sampleInfoDis, sampleInfoEth, sampleInfoS
 ```
 
 ## GO and KEGG analysis
+=======
+```{r filter Duplicate data}
+uniqEntrezGenes <- geneAnnotationData %>% select(c("ensembl_gene_id", "entrezgene_id")) %>% distinct() %>% arrange(ensembl_gene_id, entrezgene_id) %>% filter(!duplicated(ensembl_gene_id)) %>% arrange(entrezgene_id, ensembl_gene_id) %>% filter(!duplicated(entrezgene_id), !is.na(entrezgene_id))
+```
+
+##Gene Ontology
+>>>>>>> 67b8d2593bdfef3d74e54c23d7f031ba83966f23
 ```{r Gene Ontology and Gene Enrichment Analysis, error = F, eval = F}
 
 uniqEntrezGenes <- geneAnnotationData %>% select(c("ensembl_gene_id", "entrezgene_id")) %>% distinct() %>% arrange(ensembl_gene_id, entrezgene_id) %>% filter(!duplicated(ensembl_gene_id)) %>% arrange(entrezgene_id, ensembl_gene_id) %>% filter(!duplicated(entrezgene_id), !is.na(entrezgene_id))
@@ -177,8 +188,13 @@ gxDataEntrez <- gxData %>% rownames_to_column(var = "ensembl_gene_id") %>% filte
 # GO and KEGG analysis for all subjects
 DEAentrez <- DifferentialGeneExpressionCalc(gxDataEntrez, sampleInfo, saveResultsOnly = F)
 
+<<<<<<< HEAD
 GOResuls <- goana(DEAentrez$fittedModel)
 KEGGResults <- kegga(DEAentrez$fittedModel)
+=======
+GOResults <- goana(DEAentrez$fittedModel)
+kEGGResults <- kegga(DEAentrez$fittedModel)
+>>>>>>> 67b8d2593bdfef3d74e54c23d7f031ba83966f23
 
 # GO and KEGG analysis for each sampleInfoDcmHcm
 pathwaySubset <- list()
@@ -197,7 +213,23 @@ names(pathwaySubset) <- names(sampleInfoSubset)
 rm(SInfoSubs, gxDataSubs, DEAentrezSubs, GOsubs, KEGGsubs)
 ```
 
+<<<<<<< HEAD
 ## start weighed gene coexpression network analysis
+=======
+
+WARNING: generates lots of files, use at own discretion
+```{r}
+# Define plotting function for applying later
+# plot_pathway <- function(pid) pathview(gene.data=foldchanges, pathway.id=pid, species="Hs", new.signature=FALSE)
+
+keggresids <- substr(rownames(kEGGResults), 6, 13)
+foldchanges <- DEAentrez$results$logFC_DonorVsDCM
+# plot multiple pathways (plots saved to disk and returns a throwaway list object)
+tmp <- sapply(keggresids, function(pid) pathview(gene.data=foldchanges, pathway.id=pid, species="hsa"))
+```
+
+##WGCNA
+>>>>>>> 67b8d2593bdfef3d74e54c23d7f031ba83966f23
 ```{r WGCNA, eval = F}
 # check if there are samples with missing data
 gsg = goodSamplesGenes(gxData, verbose = 3);
@@ -228,7 +260,7 @@ plotDendroAndColors(sampleTree, traitColors,
 ```
 
 #########################################
-Network construction and module detection
+##Network construction and module detection
 #########################################
 
 ```{r enable multithreading, eval = F}
@@ -412,7 +444,22 @@ geneInfo <- geneInfo0 %>% group_by(moduleColor) %>% arrange(-abs(GS.Disease), .b
 write.csv(geneInfo, file = "geneInfo.csv", row.names = FALSE)
 ```
 
+<<<<<<< HEAD
 ## export network files for use in cytoscape
+=======
+###################################
+##Network visualization 
+###################################
+```{r allow multithreading, eval = F}
+# Allow multi-threading within WGCNA. This helps speed up certain calculations.
+# At present this call is necessary for the code to work.
+# Any error here may be ignored but you may want to update WGCNA if you see one.
+# Caution: skip this line if you run RStudio or other third-party R environments. 
+# See note above.
+enableWGCNAThreads()
+```
+
+>>>>>>> 67b8d2593bdfef3d74e54c23d7f031ba83966f23
 ```{r Visualize Network, eval = F}
 # Recalculate topological overlap if needed
 TOM = TOMsimilarityFromExpr(t(gxData), power = 6);
