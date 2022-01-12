@@ -163,18 +163,19 @@ gxDataEntrez <- gxData %>% rownames_to_column(var = "ensembl_gene_id") %>% filte
 DEAentrez <- DifferentialGeneExpressionCalc(gxDataEntrez, sampleInfo, saveResultsOnly = F)
 
 GOResults <- goana(DEAentrez$fittedModel)
-kEGGResults <- kegga(DEAentrez$fittedModel)
+KEGGResults <- kegga(DEAentrez$fittedModel)
 
 ```
 
 
 WARNING: generates lots of files, use at own discretion
-```{r}
-# Define plotting function for applying later
-# plot_pathway <- function(pid) pathview(gene.data=foldchanges, pathway.id=pid, species="Hs", new.signature=FALSE)
+##Pathway analysis
+```{r Pathway plotting}
+PThreshold = 0.05
 
-keggresids <- substr(rownames(kEGGResults), 6, 13)
-foldchanges <- DEAentrez$results$logFC_DonorVsDCM
+keggresids <- substr(rownames(KEGGResults[which(KEGGResults$P.Up < PThreshold | KEGGResults$P.Down < PThreshold),]), 6, 13)
+foldchanges <- DEAentrez$results$logFC_DonorVsDCM[which(KEGGResults$P.Up < PThreshold | KEGGResults$P.Down < PThreshold)]
+setwd("./output")
 # plot multiple pathways (plots saved to disk and returns a throwaway list object)
 tmp <- sapply(keggresids, function(pid) pathview(gene.data=foldchanges, pathway.id=pid, species="hsa"))
 ```
