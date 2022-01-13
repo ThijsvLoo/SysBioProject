@@ -194,6 +194,7 @@ geneAnnotationData <- getBM(attributes = c("ensembl_gene_id",
 
 ```
 
+
 ## GO and KEGG analysis
 ```{r Gene Ontology and Gene Enrichment Analysis, error = F, eval = F}
 uniqEntrezGenes <- geneAnnotationData %>% select(c("ensembl_gene_id", "entrezgene_id")) %>% distinct() %>% arrange(ensembl_gene_id, entrezgene_id) %>% filter(!duplicated(ensembl_gene_id)) %>% arrange(entrezgene_id, ensembl_gene_id) %>% filter(!duplicated(entrezgene_id), !is.na(entrezgene_id))
@@ -221,6 +222,15 @@ for (subs in names(sampleInfoDcmHcm)) {
 }
 names(pathwaySubset) <- names(sampleInfoDcmHcm)
 rm(SInfoSubs, gxDataSubs, DEAentrezSubs, GOsubs, KEGGsubs)
+
+# Define plotting function for applying later
+# plot_pathway <- function(pid) pathview(gene.data=foldchanges, pathway.id=pid, species="Hs", new.signature=FALSE)
+
+keggresids <- substr(rownames(pathwaySubset$DCM_Male_African.American$KEGGResults), 6, 13)
+foldchanges <- pathwaySubset$DCM_Male_African.American$DEAResults$results$logFC_DonorVsDCM
+# plot multiple pathways (plots saved to disk and returns a throwaway list object)
+tmp <- sapply(keggresids, function(pid) pathview(gene.data=foldchanges, pathway.id=pid, species="hsa"))
+
 ```
 
 WARNING: generates lots of files, use at own discretion
