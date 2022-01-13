@@ -206,8 +206,23 @@ DEAentrez <- DifferentialGeneExpressionCalc(gxDataEntrez, sampleInfo, saveResult
 
 GOResults <- goana(DEAentrez$fittedModel)
 KEGGResults <- kegga(DEAentrez$fittedModel)
+```
 
-# GO and KEGG analysis for each sampleInfoDcmHcm
+WARNING: generates lots of files, use at own discretion
+##Pathway analysis
+```{r Pathway plotting}
+PThreshold = 0.05
+
+keggresids <- substr(rownames(KEGGResults[which(KEGGResults$P.Up < PThreshold | KEGGResults$P.Down < PThreshold),]), 6, 13)
+foldchanges <- DEAentrez$results$logFC_DonorVsDCM[which(KEGGResults$P.Up < PThreshold | KEGGResults$P.Down < PThreshold)]
+setwd("./output")
+# plot multiple pathways (plots saved to disk and returns a throwaway list object)
+tmp <- sapply(keggresids, function(pid) pathview(gene.data=foldchanges, pathway.id=pid, species="hsa"))
+```
+
+## GO and KEGG analysis for each subgroup in sampleInfoDcmHcm
+```{r}
+# GO and KEGG analysis for each subgroup in sampleInfoDcmHcm
 pathwaySubset <- list()
 
 for (subs in names(sampleInfoDcmHcm)) {
@@ -223,24 +238,28 @@ for (subs in names(sampleInfoDcmHcm)) {
 names(pathwaySubset) <- names(sampleInfoDcmHcm)
 rm(SInfoSubs, gxDataSubs, DEAentrezSubs, GOsubs, KEGGsubs)
 
+# load GeneKEGGLinks for filtering of genes
+# GeneKEGGLinks <- getGeneKEGGLinks(species.KEGG = "hsa")
+
 # Define plotting function for applying later
 # plot_pathway <- function(pid) pathview(gene.data=foldchanges, pathway.id=pid, species="Hs", new.signature=FALSE)
-
-keggresids <- substr(rownames(pathwaySubset$DCM_Male_African.American$KEGGResults), 6, 13)
-foldchanges <- pathwaySubset$DCM_Male_African.American$DEAResults$results$logFC_DonorVsDCM
-# plot multiple pathways (plots saved to disk and returns a throwaway list object)
-tmp <- sapply(keggresids, function(pid) pathview(gene.data=foldchanges, pathway.id=pid, species="hsa"))
-
-```
-
-WARNING: generates lots of files, use at own discretion
-##Pathway analysis
-```{r Pathway plotting}
 PThreshold = 0.05
 
-keggresids <- substr(rownames(KEGGResults[which(KEGGResults$P.Up < PThreshold | KEGGResults$P.Down < PThreshold),]), 6, 13)
-foldchanges <- DEAentrez$results$logFC_DonorVsDCM[which(KEGGResults$P.Up < PThreshold | KEGGResults$P.Down < PThreshold)]
-setwd("./output")
+# filter for significantly overrepresentation in up- or down-regulation
+for(set in names(pathwaySubset)) {
+  
+  subDir <- paste(getwd(), "/output/", set, sep="")
+  if (file.exists(subDir) == F){dir.create(file.path(subDir))} 
+  
+  keggresids <- pathwaySubset[[set]]$KEGGResults %>% filter(P.Up < PThreshold | P.Down < PThreshold)
+  pathwaySubset[[paste(set)]]$keggresids <- gsub("^path:","" , rownames(keggresids))
+  pathwaySubset[[paste(set)]]$foldchanges <- pathwaySubset[[paste(set)]]$DEAResults$results %>% select(1)
+  
+  sapply(pathwaySubset[[paste(set)]]$keggresids, function(pid) pathview(gene.data = pathwaySubset[[paste(set)]]$foldchangess, pathway.id = pid, species = "hsa"))
+}
+
+rm(keggresids, foldchanges, PThreshold)
+
 # plot multiple pathways (plots saved to disk and returns a throwaway list object)
 tmp <- sapply(keggresids, function(pid) pathview(gene.data=foldchanges, pathway.id=pid, species="hsa"))
 ```
