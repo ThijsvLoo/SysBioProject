@@ -214,7 +214,8 @@ WARNING: generates lots of files, use at own discretion
 PThreshold = 0.05
 
 keggresids <- substr(rownames(KEGGResults[which(KEGGResults$P.Up < PThreshold | KEGGResults$P.Down < PThreshold),]), 6, 13)
-foldchanges <- DEAentrez$results$logFC_DonorVsDCM[which(KEGGResults$P.Up < PThreshold | KEGGResults$P.Down < PThreshold)]
+foldchanges <- as.data.frame(DEAentrez$results$logFC_DonorVsDCM[DEAentrez$results$P.Value_DonorVsDCM < PThreshold])
+rownames(foldchanges) <- rownames(which(DEAentrez$results[DEAentrez$results$P.Value_DonorVsDCM < PThreshold]))
 setwd("./output")
 # plot multiple pathways (plots saved to disk and returns a throwaway list object)
 tmp <- sapply(keggresids, function(pid) pathview(gene.data=foldchanges, pathway.id=pid, species="hsa"))
