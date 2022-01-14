@@ -49,9 +49,6 @@ DifferentialGeneExpressionCalc <- function(assayData, phenoData, saveResultsOnly
   df <- data.frame(matrix(ncol = 0, nrow = length(as.matrix(assayData[1]))))
 
   DisVec <- unique(phenoData$Disease)
-  # print(design[,diseasDesignCol])
-  # statusTest <-
-  # print(design[,"DiseaseDonor"])
   # Create a contrasts matrix
   if(all(c("DCM", "HCM", "PPCM") %in% DisVec) == T) {
   cm <- makeContrasts(
@@ -115,6 +112,47 @@ DifferentialGeneExpressionCalc <- function(assayData, phenoData, saveResultsOnly
 DEA_DonorVsAll <- DifferentialGeneExpressionCalc(gxData, sampleInfo)
 
 ```
+
+
+```{r dge on sex}
+DifferentialGeneExpressionCalcSex <- function(assayData, phenoData, saveResultsOnly = T) {
+  # Create ExpressionSet object
+  eset <- ExpressionSet(assayData = data.matrix(assayData), phenoData = AnnotatedDataFrame(phenoData))
+  design <- model.matrix(~0+Sex, data = pData(eset))
+
+  df <- data.frame(matrix(ncol = 0, nrow = length(as.matrix(assayData[1]))))
+
+  DisVec <- unique(phenoData$Disease)
+  # Create a contrasts matrix
+  cm <- makeContrasts(
+  MaleVsFemale = SexMale - SexFemale,
+  levels = design)
+  
+  for(comparison in colnames(cm)){
+    # Fit the model
+    fit <- lmFit(eset, design)
+# nice    
+    # Fit the contrasts
+    fit2 <- contrasts.fit(fit, contrasts = cm[,comparison])
+    # Calculate the t-statistics for the contrasts
+    fit2 <- eBayes(fit2)
+
+    diffGenExprTestData <- topTable(fit2, adjust = "fdr", number = nrow(gxData))
+    diffGenExprTestDecision <- decideTests(fit2, adjust.method = "fdr", p.value = 0.05, lfc = 1)
+    colnames(diffGenExprTestData) <- paste(colnames(diffGenExprTestData), comparison, sep = "_")
+    colnames(diffGenExprTestDecision) <- paste("decideTests", comparison, sep = "_")
+
+    df <- cbind(df, diffGenExprTestData, diffGenExprTestDecision)
+  }
+  if(saveResultsOnly == T) {
+    df
+  } else {
+    list("expressionSet" = eset, "designMatrix" = design, "fittedModel" = fit2, "results" = df)
+  }
+}
+DEA_Sex <- DifferentialGeneExpressionCalcSex(gxData[,sampleInfo$Disease == "DCM"], sampleInfo[sampleInfo$Disease == "DCM",])
+```
+
 
 ```{r DEA in male and female DCM patients, eval = F}
 # split data into male | female
@@ -214,7 +252,8 @@ WARNING: generates lots of files, use at own discretion
 PThreshold = 0.05
 
 keggresids <- substr(rownames(KEGGResults[which(KEGGResults$P.Up < PThreshold | KEGGResults$P.Down < PThreshold),]), 6, 13)
-foldchanges <- DEAentrez$results$logFC_DonorVsDCM[which(KEGGResults$P.Up < PThreshold | KEGGResults$P.Down < PThreshold)]
+foldchanges <- as.data.frame(DEAentrez$results$logFC_DonorVsDCM[DEAentrez$results$P.Value_DonorVsDCM < PThreshold])
+rownames(foldchanges) <- rownames(which(DEAentrez$results[DEAentrez$results$P.Value_DonorVsDCM < PThreshold]))
 setwd("./output")
 # plot multiple pathways (plots saved to disk and returns a throwaway list object)
 tmp <- sapply(keggresids, function(pid) pathview(gene.data=foldchanges, pathway.id=pid, species="hsa"))
