@@ -240,28 +240,27 @@ rm(SInfoSubs, gxDataSubs, DEAentrezSubs, GOsubs, KEGGsubs)
 
 # load GeneKEGGLinks for filtering of genes
 # GeneKEGGLinks <- getGeneKEGGLinks(species.KEGG = "hsa")
-
-# Define plotting function for applying later
-# plot_pathway <- function(pid) pathview(gene.data=foldchanges, pathway.id=pid, species="Hs", new.signature=FALSE)
+```
+```{r}
 PThreshold = 0.05
-
 # filter for significantly overrepresentation in up- or down-regulation
 for(set in names(pathwaySubset)) {
   
-  subDir <- paste(getwd(), "/output/", set, sep="")
-  if (file.exists(subDir) == F){dir.create(file.path(subDir))} 
+  removeRows <- c(grep(".* - other$", pathwaySubset[[set]]$KEGGResults$Pathway), grep(".* - animal$", pathwaySubset[[set]]$KEGGResults$Pathway), grep(".* - multiple species$", pathwaySubset[[set]]$KEGGResults$Pathway), which(rownames(pathwaySubset[[set]]$KEGGResults) == "path:hsa01100"), which(rownames(pathwaySubset[[set]]$KEGGResults) == "path:hsa05206"))
   
-  keggresids <- pathwaySubset[[set]]$KEGGResults %>% filter(P.Up < PThreshold | P.Down < PThreshold)
-  pathwaySubset[[paste(set)]]$keggresids <- gsub("^path:","" , rownames(keggresids))
-  pathwaySubset[[paste(set)]]$foldchanges <- pathwaySubset[[paste(set)]]$DEAResults$results %>% select(1)
+  keggresids <- pathwaySubset[[set]]$KEGGResults[-removeRows, ] %>% filter(P.Up < PThreshold | P.Down < PThreshold)
+  keggresids <- gsub("^path:","" , rownames(keggresids)) 
+  foldchanges <- pathwaySubset[[set]]$DEAResults$results %>% select(1)
   
-  sapply(pathwaySubset[[paste(set)]]$keggresids, function(pid) pathview(gene.data = pathwaySubset[[paste(set)]]$foldchangess, pathway.id = pid, species = "hsa"))
+# plot multiple pathways (plots saved to disk and returns a throwaway list object)
+  setwd(paste("./output/", set, sep = ""))
+  for (pid in keggresids) {
+  pathview(gene.data = foldchanges, pathway.id = pid, species = "hsa")
+  }
 }
 
-rm(keggresids, foldchanges, PThreshold)
+rm(keggresids, foldchanges, PThreshold, removeRows)
 
-# plot multiple pathways (plots saved to disk and returns a throwaway list object)
-tmp <- sapply(keggresids, function(pid) pathview(gene.data=foldchanges, pathway.id=pid, species="hsa"))
 ```
 
 ## start weighed gene coexpression network analysis
