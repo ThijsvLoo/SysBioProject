@@ -114,7 +114,7 @@ DEA_DonorVsAll <- DifferentialGeneExpressionCalc(gxData, sampleInfo)
 ```
 
 
-```{r dge on sex}
+```{r DEA on sex}
 DifferentialGeneExpressionCalcSex <- function(assayData, phenoData, saveResultsOnly = T) {
   # Create ExpressionSet object
   eset <- ExpressionSet(assayData = data.matrix(assayData), phenoData = AnnotatedDataFrame(phenoData))
@@ -150,7 +150,7 @@ DifferentialGeneExpressionCalcSex <- function(assayData, phenoData, saveResultsO
     list("expressionSet" = eset, "designMatrix" = design, "fittedModel" = fit2, "results" = df)
   }
 }
-DEA_Sex <- DifferentialGeneExpressionCalcSex(gxData[,sampleInfo$Disease == "DCM"], sampleInfo[sampleInfo$Disease == "DCM",])
+DEA_Sex <- DifferentialGeneExpressionCalcSex(gxData[,sampleInfo$Disease == "DCM"], sampleInfo[sampleInfo$Disease == "DCM",], saveResultsOnly = F)
 ```
 
 
@@ -218,7 +218,7 @@ mart <- useDataset("hsapiens_gene_ensembl",mart)
 # get gene annotation data from ensembl database
 geneAnnotationData <- getBM(attributes = c("ensembl_gene_id", 
                                            #"ensembl_gene_id_version",
-                                           "go_id", 
+                                           # "go_id", 
                                            "entrezgene_id", 
                                            "chromosome_name", 
                                            "external_gene_name", 
@@ -253,11 +253,40 @@ PThreshold = 0.05
 
 keggresids <- substr(rownames(KEGGResults[which(KEGGResults$P.Up < PThreshold | KEGGResults$P.Down < PThreshold),]), 6, 13)
 foldchanges <- as.data.frame(DEAentrez$results$logFC_DonorVsDCM[DEAentrez$results$P.Value_DonorVsDCM < PThreshold])
-rownames(foldchanges) <- rownames(which(DEAentrez$results[DEAentrez$results$P.Value_DonorVsDCM < PThreshold]))
+# rownames(foldchanges) <- rownames(which(DEAentrez$results[DEAentrez$results$P.Value_DonorVsDCM < PThreshold]))
 setwd("./output")
 # plot multiple pathways (plots saved to disk and returns a throwaway list object)
 tmp <- sapply(keggresids, function(pid) pathview(gene.data=foldchanges, pathway.id=pid, species="hsa"))
 ```
+
+##Sex pathway analysis
+```{r}
+# GO and KEGG analysis for all subjects
+# DEA_Sex <- DifferentialGeneExpressionCalcSex(gxData[,sampleInfo$Disease == "DCM"], sampleInfo[sampleInfo$Disease == "DCM",], saveResultsOnly = F)
+DEAentrezSex <- DifferentialGeneExpressionCalcSex(gxDataEntrez[,sampleInfo$Disease == "DCM"], sampleInfo[sampleInfo$Disease == "DCM",], saveResultsOnly = F)
+
+# GOResults <- goana(DEAentrezSex$fittedModel)
+# KEGGResults <- kegga(DEAentrezSex$fittedModel)
+
+
+removeRows <- c(grep(".* - other$", KEGGResults$Pathway), 
+                grep(".* - animal$", KEGGResults$Pathway), 
+                grep(".* - multiple species$", KEGGResults$Pathway), 
+                which(rownames(KEGGResults) == "path:hsa01100"),
+                which(rownames(KEGGResults) == "path:hsa04723"),
+                which(rownames(KEGGResults) == "path:hsa05206"))
+
+sigKeggResults <- KEGGResults[-removeRows,] %>% filter(P.Up < PThreshold | P.Down < PThreshold)
+keggresids <- gsub("^path:","" , rownames(sigKeggResults))
+# keggresids <- substr(rownames(KEGGResults[which(KEGGResults$P.Up < PThreshold | KEGGResults$P.Down < PThreshold),]), 6, 13)
+foldchanges <- DEAentrezSex$results %>% dplyr::select(1)
+
+# setwd("./output/sex/")
+for (pid in keggresids) {
+  pathview(gene.data = foldchanges, pathway.id = pid, species = "hsa")
+}
+```
+
 
 ## GO and KEGG analysis for each subgroup in sampleInfoDcmHcm
 ```{r}
@@ -280,6 +309,7 @@ rm(SInfoSubs, gxDataSubs, DEAentrezSubs, GOsubs, KEGGsubs)
 # load GeneKEGGLinks for filtering of genes
 # GeneKEGGLinks <- getGeneKEGGLinks(species.KEGG = "hsa")
 ```
+
 ```{r}
 PThreshold = 0.05
 # filter for significantly overrepresentation in up- or down-regulation
@@ -289,7 +319,7 @@ for(set in names(pathwaySubset)) {
   
   keggresids <- pathwaySubset[[set]]$KEGGResults[-removeRows, ] %>% filter(P.Up < PThreshold | P.Down < PThreshold)
   keggresids <- gsub("^path:","" , rownames(keggresids)) 
-  foldchanges <- pathwaySubset[[set]]$DEAResults$results %>% select(1)
+  foldchanges <- pathwaySubset[[set]]$DEAResults$results %>% dplyr::selectselect(1)
   
 # plot multiple pathways (plots saved to disk and returns a throwaway list object)
   setwd(paste("./output/", set, sep = ""))
