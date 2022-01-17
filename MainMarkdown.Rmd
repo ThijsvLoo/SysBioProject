@@ -4,6 +4,7 @@ output: html_document
 ---
 ##Setup
 ```{r setup}
+here::i_am("SysBioProject.Rproj")
 library(limma)
 library(Biobase)
 library(biomaRt)
@@ -21,6 +22,21 @@ sampleInfo <- sampleInfo %>% mutate(
   Ethnicity = factor(Ethnicity, levels = unique(Ethnicity))
 )
 geneTotExonLengths <- read.delim("./Data/MAGNET_exonLengths.txt", as.is = T, row.names = 1)
+sampleInfoExtended <- read.delim("https://raw.githubusercontent.com/mpmorley/MAGNet/master/phenoData.csv", sep = ",", as.is = T)
+sampleInfoExtendedClean <- sampleInfoExtended %>% 
+  mutate(
+    Disease = factor(etiology, levels = unique(etiology), labels = levels(sampleInfo$Disease)),
+    Ethnicity = factor(race, levels = unique(race), labels = levels(sampleInfo$Ethnicity)),
+    BMI = round(weight / (height/100)^2, digits = 1),
+    Sex = factor(gender),
+    Diabetes = as.logical(factor(Diabetes, levels = c("Yes", "No"), labels = c("TRUE", "FALSE"))),
+    Hypertension = as.logical(factor(Hypertension, levels = c("Yes", "No"), labels = c("TRUE", "FALSE"))),
+    Atrial.Fibrillation = as.logical(factor(afib, levels = c("Yes", "No"), labels = c("TRUE", "FALSE"))),
+    VTVF = as.logical(factor(VTVF, levels = c("Yes", "No"), labels = c("TRUE", "FALSE")))
+  ) %>% 
+  relocate(c("Disease", "Ethnicity", "Sex", "Diabetes", "Hypertension", "Atrial.Fibrillation", "VTVF", "BMI", "age", "LVEF"), .after = "sample_name") %>% 
+  dplyr::select(-c("etiology", "race", "gender", "afib", "disease_race")) %>%
+  dplyr::rename("Age" = "age", "LV.EjectionFraction" = "LVEF")
 ```
 
 ```{python, eval = F}
@@ -38,8 +54,38 @@ cpm2fpkm <- function(x) {
 gxData_fpkm <- cpm2fpkm(gxData)
 ```
 
+##Gene Annotation Biomart
+```{r biomart gene annotation}
+
+mart <- useMart("ensembl")
+# set to use ensemble database for humans
+mart <- useDataset("hsapiens_gene_ensembl",mart)
+# listAttributes(mart) #to get a list of possible attributes
+
+# get gene annotation data from ensembl database
+geneAnnotationData <- getBM(attributes = c("ensembl_gene_id", 
+                                           #"ensembl_gene_id_version",
+                                           "go_id", 
+                                           "entrezgene_id", 
+                                           "chromosome_name", 
+                                           "external_gene_name", 
+                                           "hgnc_symbol", 
+                                           "description"), 
+                            mart = mart,
+                            filters = "ensembl_gene_id",
+                            values = rownames(gxData),
+                            uniqueRows = T
+                            )
+
+```
+
+## Gene - KEGG links
+```{r}
+geneKEGGLinks <- getGeneKEGGLinks(species.KEGG = "hsa", convert = FALSE)
+```
+
 ##Differential Gene Expression
-```{r Differential Gene Expression}
+```{r dge on disease}
 # Create ExpressionSet object
 DifferentialGeneExpressionCalc <- function(assayData, phenoData, saveResultsOnly = T) {
   # Create ExpressionSet object
@@ -113,7 +159,6 @@ DEA_DonorVsAll <- DifferentialGeneExpressionCalc(gxData, sampleInfo)
 
 ```
 
-
 ```{r dge on sex}
 DifferentialGeneExpressionCalcSex <- function(assayData, phenoData, saveResultsOnly = T) {
   # Create ExpressionSet object
@@ -153,23 +198,31 @@ DifferentialGeneExpressionCalcSex <- function(assayData, phenoData, saveResultsO
 DEA_Sex <- DifferentialGeneExpressionCalcSex(gxData[,sampleInfo$Disease == "DCM"], sampleInfo[sampleInfo$Disease == "DCM",])
 ```
 
-
 ```{r DEA in male and female DCM patients, eval = F}
 # split data into male | female
-sampleInfoMale <- sampleInfo %>% filter(Sex == "Male") %>% 
+sampleInfoMale <- sampleInfo %>% 
+  filter(Sex == "Male") %>% 
   mutate(Disease = factor(Disease))
-gxDataMale <- gxData %>% select(rownames(sampleInfoMale))
+gxDataMale <- gxData %>% 
+  select(rownames(sampleInfoMale))
 
-sampleInfoFemale <- sampleInfo %>% filter(Sex == "Female")
-gxDataFemale <- gxData %>% select(rownames(sampleInfoFemale))
+sampleInfoFemale <- sampleInfo %>% 
+  filter(Sex == "Female")
+gxDataFemale <- gxData %>% 
+  select(rownames(sampleInfoFemale))
 
 # get differential gene expression data for male and female
 DEA_Male <- DifferentialGeneExpressionCalc(gxDataMale, sampleInfoMale, saveResultsOnly = F)
 DEA_Female <- DifferentialGeneExpressionCalc(gxDataFemale, sampleInfoFemale, saveResultsOnly = F)
 
 # filter for up/down-regulated genes in male and female patients and rank by logFC
-DEA_MaleDCM <- DEA_Male$results %>% select(grep("DCM", colnames(DEA_Male$results))) %>% mutate(logFC_DonorVsDCM = abs(logFC_DonorVsDCM)) %>% arrange(desc("logFC_DonorVsDCM"))
-DEA_FemaleDCM <- DEA_Female$results %>% select(grep("DCM", colnames(DEA_Female$results)))  %>% arrange(desc("logFC_DonorVsDCM"))
+DEA_MaleDCM <- DEA_Male$results %>% 
+  select(grep("DCM", colnames(DEA_Male$results))) %>% 
+  mutate(logFC_DonorVsDCM = abs(logFC_DonorVsDCM)) %>% 
+  arrange(desc("logFC_DonorVsDCM"))
+DEA_FemaleDCM <- DEA_Female$results %>% 
+  select(grep("DCM", colnames(DEA_Female$results)))  %>% 
+  arrange(desc("logFC_DonorVsDCM"))
 
 DEA_Male <- c(DEA_Male, "rankedResultsDCM" = list(DEA_MaleDCM))
 DEA_Female <- c(DEA_Female, "rankedResultsDCM" = list(DEA_FemaleDCM))
@@ -177,67 +230,31 @@ DEA_Female <- c(DEA_Female, "rankedResultsDCM" = list(DEA_FemaleDCM))
 rm(DEA_MaleDCM, DEA_FemaleDCM)
 
 # export gene names for GO analysis
-write.table(rownames(DEA_Male$rankedResultsDCM), file = "diffExpGenes_MaleDCM.txt", quote = F, row.names = F, col.names = F)
-write.table(rownames(DEA_Female$rankedResultsDCM), file = "diffExpGenes_FemaleDCM.txt", quote = F, row.names = F, col.names = F)
+write.table(rownames(DEA_Male$rankedResultsDCM), 
+            file = "output/diffExpGenes_MaleDCM.txt", 
+            quote = F, row.names = F, col.names = F)
+write.table(rownames(DEA_Female$rankedResultsDCM), 
+            file = "output/diffExpGenes_FemaleDCM.txt", 
+            quote = F, row.names = F, col.names = F)
 
 ```
-
-## DEA by subsets
-```{r subset sampleInfo by each combination of co-variates}
-# filter sampleInfo, split subjects into groups by each co-variate
-sampleInfoSubsets <- list()
-sampleInfoDonor <- sampleInfo %>% filter(Disease == "Donor")
-
-for (Dis in c("DCM", "HCM", "PPCM")) {
-  sampleInfoDis <- sampleInfo %>% filter(Disease == Dis) 
-  sampleInfoDis <- rbind(sampleInfoDis, sampleInfoDonor) %>% mutate(Disease = factor(Disease))
-  for (Sx in levels(sampleInfoDis$Sex)) {
-    sampleInfoSx <- sampleInfoDis %>% filter(Sex == Sx) %>% mutate(Sex = factor(Sex, levels = Sx))
-    for (Eth in levels(sampleInfoSx$Ethnicity)) {
-      sampleInfoEth <- sampleInfoSx %>% filter(Ethnicity == Eth) %>% mutate(Ethnicity = factor(Ethnicity, levels = Eth), Disease = factor(Disease, levels = unique(Disease)))
-      sampleInfoSubsets[[paste(Dis, Sx, Eth, sep = "_")]] <- data.frame(sampleInfoEth)
-    }
-  }
-}
-
-# remove PPCM and Donor sets
-sampleInfoTemp <- sampleInfoSubsets[-c(grep("PPCM", names(sampleInfoSubsets)))]
-sampleInfoDcmHcm <- sampleInfoTemp[-grep("HCM_Male_African.American", names(sampleInfoTemp))]
-
-rm(sampleInfoTemp, sampleInfoSubsets, sampleInfoDonor, sampleInfoDis, sampleInfoEth, sampleInfoSx, Dis, Sx, Eth)
-```
-
-##Gene Annotation Biomart
-```{r biomart gene annotation}
-
-mart <- useMart("ensembl")
-# set to use ensemble database for humans
-mart <- useDataset("hsapiens_gene_ensembl",mart)
-# listAttributes(mart) #to get a list of possible attributes
-
-# get gene annotation data from ensembl database
-geneAnnotationData <- getBM(attributes = c("ensembl_gene_id", 
-                                           #"ensembl_gene_id_version",
-                                           "go_id", 
-                                           "entrezgene_id", 
-                                           "chromosome_name", 
-                                           "external_gene_name", 
-                                           "hgnc_symbol", 
-                                           "description"), 
-                            mart = mart,
-                            filters = "ensembl_gene_id",
-                            values = rownames(gxData),
-                            uniqueRows = T
-                            )
-
-```
-
 
 ## GO and KEGG analysis
 ```{r Gene Ontology and Gene Enrichment Analysis, error = F, eval = F}
-uniqEntrezGenes <- geneAnnotationData %>% select(c("ensembl_gene_id", "entrezgene_id")) %>% distinct() %>% arrange(ensembl_gene_id, entrezgene_id) %>% filter(!duplicated(ensembl_gene_id)) %>% arrange(entrezgene_id, ensembl_gene_id) %>% filter(!duplicated(entrezgene_id), !is.na(entrezgene_id))
+uniqEntrezGenes <- geneAnnotationData %>% 
+  select(c("ensembl_gene_id", "entrezgene_id")) %>% 
+  distinct() %>% 
+  arrange(ensembl_gene_id, entrezgene_id) %>% 
+  filter(!duplicated(ensembl_gene_id)) %>% 
+  arrange(entrezgene_id, ensembl_gene_id) %>% 
+  filter(!duplicated(entrezgene_id), !is.na(entrezgene_id))
 
-gxDataEntrez <- gxData %>% rownames_to_column(var = "ensembl_gene_id") %>% filter(ensembl_gene_id %in% uniqEntrezGenes$ensembl_gene_id) %>% left_join(uniqEntrezGenes, by = "ensembl_gene_id") %>% select(-ensembl_gene_id) %>% column_to_rownames(var = "entrezgene_id")
+gxDataEntrez <- gxData %>% 
+  rownames_to_column(var = "ensembl_gene_id") %>% 
+  filter(ensembl_gene_id %in% uniqEntrezGenes$ensembl_gene_id) %>% 
+  left_join(uniqEntrezGenes, by = "ensembl_gene_id") %>% 
+  select(-ensembl_gene_id) %>% 
+  column_to_rownames(var = "entrezgene_id")
 
 # GO and KEGG analysis for all subjects
 DEAentrez <- DifferentialGeneExpressionCalc(gxDataEntrez, sampleInfo, saveResultsOnly = F)
@@ -259,13 +276,40 @@ setwd("./output")
 tmp <- sapply(keggresids, function(pid) pathview(gene.data=foldchanges, pathway.id=pid, species="hsa"))
 ```
 
-## GO and KEGG analysis for each subgroup in sampleInfoDcmHcm
-```{r}
+## DEA by subsets
+```{r subset sampleInfo by each combination of co-variates}
+# filter sampleInfo, split subjects into groups by each co-variate
+sampleInfoSubsets <- list()
+sampleInfoDonor <- sampleInfo %>% filter(Disease == "Donor")
+
+for (Dis in c("DCM", "HCM", "PPCM")) {
+  sampleInfoDis <- sampleInfo %>% filter(Disease == Dis) 
+  sampleInfoDis <- rbind(sampleInfoDis, sampleInfoDonor) %>% mutate(Disease = factor(Disease))
+  for (Sx in levels(sampleInfoDis$Sex)) {
+    sampleInfoSx <- sampleInfoDis %>% filter(Sex == Sx) %>% mutate(Sex = factor(Sex, levels = Sx))
+    for (Eth in levels(sampleInfoSx$Ethnicity)) {
+      sampleInfoEth <- sampleInfoSx %>% filter(Ethnicity == Eth) %>% mutate(
+        Ethnicity = factor(Ethnicity, levels = Eth), 
+        Disease = factor(Disease, levels = unique(Disease)))
+      sampleInfoSubsets[[paste(Dis, Sx, Eth, sep = "_")]] <- data.frame(sampleInfoEth)
+    }
+  }
+}
+
+# remove PPCM and Donor sets
+sampleInfoTemp <- sampleInfoSubsets[-c(grep("PPCM", names(sampleInfoSubsets)))]
+sampleInfoDcmHcm <- sampleInfoTemp[-grep("HCM_Male_African.American", names(sampleInfoTemp))]
+
+rm(sampleInfoTemp, sampleInfoSubsets, sampleInfoDonor, sampleInfoDis, sampleInfoEth, sampleInfoSx, Dis, Sx, Eth)
+```
+
+## GO and KEGG analysis for each subset in sampleInfoDcmHcm
+```{r GO and KEGG analysis for each subset in sampleInfoDcmHcm}
 # GO and KEGG analysis for each subgroup in sampleInfoDcmHcm
 pathwaySubset <- list()
 
-for (subs in names(sampleInfoDcmHcm)) {
-  SInfoSubs <- as.data.frame(sampleInfoDcmHcm[paste(subs)], col.names = "")
+for (subset in names(sampleInfoDcmHcm)) {
+  SInfoSubs <- as.data.frame(sampleInfoDcmHcm[subset], col.names = "")
   gxDataSubs <- gxDataEntrez %>% dplyr::select(rownames(SInfoSubs))
   DEAentrezSubs <- DifferentialGeneExpressionCalc(gxDataSubs, SInfoSubs, saveResultsOnly = F)
   GOsubs <- goana(DEAentrezSubs$fittedModel)
@@ -275,31 +319,86 @@ for (subs in names(sampleInfoDcmHcm)) {
   rm(subsetData)
 }
 names(pathwaySubset) <- names(sampleInfoDcmHcm)
-rm(SInfoSubs, gxDataSubs, DEAentrezSubs, GOsubs, KEGGsubs)
 
-# load GeneKEGGLinks for filtering of genes
-# GeneKEGGLinks <- getGeneKEGGLinks(species.KEGG = "hsa")
+rm(SInfoSubs, gxDataSubs, DEAentrezSubs, GOsubs, KEGGsubs)
 ```
-```{r}
+
+WARNING: generates lots of files, use at own discretion
+```{r Pathway visualization for subsets in sampleInfoDcmHcm}
 PThreshold = 0.05
+
+if(fs::dir_exists("output/pathview_xmls")) {
+  cat("'output/pathview_xmls' already exist")
+  } else {
+  fs::dir_create("output/pathview_xmls")
+  }
+if(fs::dir_exists("output/pathview_rawPNGs")) {
+  cat("'output/pathview_rawPNGs' already exist")
+  } else {
+  fs::dir_create("output/pathview_rawPNGs")
+  }
+
 # filter for significantly overrepresentation in up- or down-regulation
 for(set in names(pathwaySubset)) {
   
-  removeRows <- c(grep(".* - other$", pathwaySubset[[set]]$KEGGResults$Pathway), grep(".* - animal$", pathwaySubset[[set]]$KEGGResults$Pathway), grep(".* - multiple species$", pathwaySubset[[set]]$KEGGResults$Pathway), which(rownames(pathwaySubset[[set]]$KEGGResults) == "path:hsa01100"), which(rownames(pathwaySubset[[set]]$KEGGResults) == "path:hsa05206"))
+  removeRows <- c(grep(".* - other$", pathwaySubset[[set]]$KEGGResults$Pathway), 
+                  grep(".* - animal$", pathwaySubset[[set]]$KEGGResults$Pathway), 
+                  grep(".* - multiple species$", pathwaySubset[[set]]$KEGGResults$Pathway), 
+                  which(rownames(pathwaySubset[[set]]$KEGGResults) == "path:hsa01100"),
+                  which(rownames(pathwaySubset[[set]]$KEGGResults) == "path:hsa05206"))
   
   keggresids <- pathwaySubset[[set]]$KEGGResults[-removeRows, ] %>% filter(P.Up < PThreshold | P.Down < PThreshold)
   keggresids <- gsub("^path:","" , rownames(keggresids)) 
-  foldchanges <- pathwaySubset[[set]]$DEAResults$results %>% select(1)
+  foldchanges <- pathwaySubset[[set]]$DEAResults$results %>% dplyr::select(1)
   
 # plot multiple pathways (plots saved to disk and returns a throwaway list object)
-  setwd(paste("./output/", set, sep = ""))
+  
+  # create directory if not existing already  
+  if (fs::dir_exists(paste("output/", set, sep = ""))) {
+    cat("'output/", set, "' already exists\n", sep = "")
+  } else {
+    fs::dir_create(paste("output/", set, sep = ""))
+  }
+
+  
   for (pid in keggresids) {
-  pathview(gene.data = foldchanges, pathway.id = pid, species = "hsa")
+      
+    if (fs::file_exists(paste("./output/", set, "/", pid, ".pathview.png", sep = ""))) {
+      #cat("pathway file for '", set, "' '", pid, "' already exists\n", sep = "")
+    } else {
+    pathview(gene.data = foldchanges, pathway.id = pid, species = "hsa")
+        
+  # move new files to respective folders
+  
+    cat("moving files...\n")
+    fs::file_copy(path = paste(pid, ".pathview.png", sep = ""), 
+                  new_path = paste("./output/", set, "/", pid, ".pathview.png", sep = ""), 
+                  overwrite = T)
+    
+    if (fs::file_exists(paste("./output/pathview_rawPNGs/", pid, ".png", sep = ""))) {
+      cat("'output/pathview_rawPNGs/", pid, ".png' already exists\n", sep = "")
+    } else {
+      fs::file_copy(path = paste(pid, ".png", sep = ""), 
+                  new_path = paste("./output/pathview_rawPNGs/", pid, ".png", sep = ""), 
+                  overwrite = F)
+    }
+    if (fs::file_exists(paste("./output/pathview_xmls/", pid, ".xml", sep = ""))) {
+      cat("'output/pathview_xmls/", pid, ".xml' already exists\n", sep = "")
+    } else {
+      fs::file_copy(path = paste(pid, ".xml", sep = ""), 
+                    new_path = paste("./output/pathview_xmls/", pid, ".xml", sep = ""), 
+                    overwrite = F)
+    }
+      
+    fs::file_delete(c(path = paste(pid, ".png", sep = ""),
+                      path = paste(pid, ".pathview.png", sep = ""),
+                      path = paste(pid, ".xml", sep = "")
+                      ))
+    }
   }
 }
 
 rm(keggresids, foldchanges, PThreshold, removeRows)
-
 ```
 
 ## start weighed gene coexpression network analysis
