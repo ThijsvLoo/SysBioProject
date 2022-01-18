@@ -159,7 +159,12 @@ DEA_DonorVsAll <- DifferentialGeneExpressionCalc(gxData, sampleInfo)
 
 ```
 
+<<<<<<< HEAD
+
+```{r DEA on sex}
+=======
 ```{r dge on sex}
+>>>>>>> 2e4f4dfc60826989904547816d49659666d527cc
 DifferentialGeneExpressionCalcSex <- function(assayData, phenoData, saveResultsOnly = T) {
   # Create ExpressionSet object
   eset <- ExpressionSet(assayData = data.matrix(assayData), phenoData = AnnotatedDataFrame(phenoData))
@@ -195,7 +200,7 @@ DifferentialGeneExpressionCalcSex <- function(assayData, phenoData, saveResultsO
     list("expressionSet" = eset, "designMatrix" = design, "fittedModel" = fit2, "results" = df)
   }
 }
-DEA_Sex <- DifferentialGeneExpressionCalcSex(gxData[,sampleInfo$Disease == "DCM"], sampleInfo[sampleInfo$Disease == "DCM",])
+DEA_Sex <- DifferentialGeneExpressionCalcSex(gxData[,sampleInfo$Disease == "DCM"], sampleInfo[sampleInfo$Disease == "DCM",], saveResultsOnly = F)
 ```
 
 ```{r DEA in male and female DCM patients, eval = F}
@@ -303,8 +308,94 @@ sampleInfoDcmHcm <- sampleInfoTemp[-grep("HCM_Male_African.American", names(samp
 rm(sampleInfoTemp, sampleInfoSubsets, sampleInfoDonor, sampleInfoDis, sampleInfoEth, sampleInfoSx, Dis, Sx, Eth)
 ```
 
+<<<<<<< HEAD
+##Gene Annotation Biomart
+```{r biomart gene annotation}
+
+mart <- useMart("ensembl")
+# set to use ensemble database for humans
+mart <- useDataset("hsapiens_gene_ensembl",mart)
+# listAttributes(mart) #to get a list of possible attributes
+
+# get gene annotation data from ensembl database
+geneAnnotationData <- getBM(attributes = c("ensembl_gene_id", 
+                                           #"ensembl_gene_id_version",
+                                           # "go_id", 
+                                           "entrezgene_id", 
+                                           "chromosome_name", 
+                                           "external_gene_name", 
+                                           "hgnc_symbol", 
+                                           "description"), 
+                            mart = mart,
+                            filters = "ensembl_gene_id",
+                            values = rownames(gxData),
+                            uniqueRows = T
+                            )
+
+```
+
+
+## GO and KEGG analysis
+```{r Gene Ontology and Gene Enrichment Analysis, error = F, eval = F}
+uniqEntrezGenes <- geneAnnotationData %>% select(c("ensembl_gene_id", "entrezgene_id")) %>% distinct() %>% arrange(ensembl_gene_id, entrezgene_id) %>% filter(!duplicated(ensembl_gene_id)) %>% arrange(entrezgene_id, ensembl_gene_id) %>% filter(!duplicated(entrezgene_id), !is.na(entrezgene_id))
+
+gxDataEntrez <- gxData %>% rownames_to_column(var = "ensembl_gene_id") %>% filter(ensembl_gene_id %in% uniqEntrezGenes$ensembl_gene_id) %>% left_join(uniqEntrezGenes, by = "ensembl_gene_id") %>% select(-ensembl_gene_id) %>% column_to_rownames(var = "entrezgene_id")
+
+# GO and KEGG analysis for all subjects
+DEAentrez <- DifferentialGeneExpressionCalc(gxDataEntrez, sampleInfo, saveResultsOnly = F)
+
+GOResults <- goana(DEAentrez$fittedModel)
+KEGGResults <- kegga(DEAentrez$fittedModel)
+```
+
+WARNING: generates lots of files, use at own discretion
+##Pathway analysis
+```{r Pathway plotting}
+PThreshold = 0.05
+
+keggresids <- substr(rownames(KEGGResults[which(KEGGResults$P.Up < PThreshold | KEGGResults$P.Down < PThreshold),]), 6, 13)
+foldchanges <- as.data.frame(DEAentrez$results$logFC_DonorVsDCM[DEAentrez$results$P.Value_DonorVsDCM < PThreshold])
+# rownames(foldchanges) <- rownames(which(DEAentrez$results[DEAentrez$results$P.Value_DonorVsDCM < PThreshold]))
+setwd("./output")
+# plot multiple pathways (plots saved to disk and returns a throwaway list object)
+tmp <- sapply(keggresids, function(pid) pathview(gene.data=foldchanges, pathway.id=pid, species="hsa"))
+```
+
+##Sex pathway analysis
+```{r}
+# GO and KEGG analysis for all subjects
+# DEA_Sex <- DifferentialGeneExpressionCalcSex(gxData[,sampleInfo$Disease == "DCM"], sampleInfo[sampleInfo$Disease == "DCM",], saveResultsOnly = F)
+DEAentrezSex <- DifferentialGeneExpressionCalcSex(gxDataEntrez[,sampleInfo$Disease == "DCM"], sampleInfo[sampleInfo$Disease == "DCM",], saveResultsOnly = F)
+
+# GOResults <- goana(DEAentrezSex$fittedModel)
+# KEGGResults <- kegga(DEAentrezSex$fittedModel)
+
+
+removeRows <- c(grep(".* - other$", KEGGResults$Pathway), 
+                grep(".* - animal$", KEGGResults$Pathway), 
+                grep(".* - multiple species$", KEGGResults$Pathway), 
+                which(rownames(KEGGResults) == "path:hsa01100"),
+                which(rownames(KEGGResults) == "path:hsa04723"),
+                which(rownames(KEGGResults) == "path:hsa05206"))
+
+sigKeggResults <- KEGGResults[-removeRows,] %>% filter(P.Up < PThreshold | P.Down < PThreshold)
+keggresids <- gsub("^path:","" , rownames(sigKeggResults))
+# keggresids <- substr(rownames(KEGGResults[which(KEGGResults$P.Up < PThreshold | KEGGResults$P.Down < PThreshold),]), 6, 13)
+foldchanges <- DEAentrezSex$results %>% dplyr::select(1)
+
+# setwd("./output/sex/")
+for (pid in keggresids) {
+  pathview(gene.data = foldchanges, pathway.id = pid, species = "hsa")
+}
+```
+
+
+## GO and KEGG analysis for each subgroup in sampleInfoDcmHcm
+```{r}
+=======
 ## GO and KEGG analysis for each subset in sampleInfoDcmHcm
 ```{r GO and KEGG analysis for each subset in sampleInfoDcmHcm}
+>>>>>>> 2e4f4dfc60826989904547816d49659666d527cc
 # GO and KEGG analysis for each subgroup in sampleInfoDcmHcm
 pathwaySubset <- list()
 
@@ -323,8 +414,12 @@ names(pathwaySubset) <- names(sampleInfoDcmHcm)
 rm(SInfoSubs, gxDataSubs, DEAentrezSubs, GOsubs, KEGGsubs)
 ```
 
+<<<<<<< HEAD
+```{r}
+=======
 WARNING: generates lots of files, use at own discretion
 ```{r Pathway visualization for subsets in sampleInfoDcmHcm}
+>>>>>>> 2e4f4dfc60826989904547816d49659666d527cc
 PThreshold = 0.05
 
 if(fs::dir_exists("output/pathview_xmls")) {
@@ -349,7 +444,11 @@ for(set in names(pathwaySubset)) {
   
   keggresids <- pathwaySubset[[set]]$KEGGResults[-removeRows, ] %>% filter(P.Up < PThreshold | P.Down < PThreshold)
   keggresids <- gsub("^path:","" , rownames(keggresids)) 
+<<<<<<< HEAD
+  foldchanges <- pathwaySubset[[set]]$DEAResults$results %>% dplyr::selectselect(1)
+=======
   foldchanges <- pathwaySubset[[set]]$DEAResults$results %>% dplyr::select(1)
+>>>>>>> 2e4f4dfc60826989904547816d49659666d527cc
   
 # plot multiple pathways (plots saved to disk and returns a throwaway list object)
   
