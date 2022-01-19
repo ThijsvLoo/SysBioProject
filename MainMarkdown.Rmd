@@ -308,7 +308,7 @@ sampleInfoDcmHcm <- sampleInfoTemp[-grep("HCM_Male_African.American", names(samp
 rm(sampleInfoTemp, sampleInfoSubsets, sampleInfoDonor, sampleInfoDis, sampleInfoEth, sampleInfoSx, Dis, Sx, Eth)
 ```
 
-<<<<<<< HEAD
+
 ##Gene Annotation Biomart
 ```{r biomart gene annotation}
 
@@ -344,8 +344,8 @@ gxDataEntrez <- gxData %>% rownames_to_column(var = "ensembl_gene_id") %>% filte
 # GO and KEGG analysis for all subjects
 DEAentrez <- DifferentialGeneExpressionCalc(gxDataEntrez, sampleInfo, saveResultsOnly = F)
 
-GOResults <- goana(DEAentrez$fittedModel)
-KEGGResults <- kegga(DEAentrez$fittedModel)
+GOResultsSex <- goana(DEAentrez$fittedModel)
+KEGGResultsSex <- kegga(DEAentrez$fittedModel)
 ```
 
 WARNING: generates lots of files, use at own discretion
@@ -391,12 +391,7 @@ for (pid in keggresids) {
 
 
 ## GO and KEGG analysis for each subgroup in sampleInfoDcmHcm
-```{r}
-=======
-## GO and KEGG analysis for each subset in sampleInfoDcmHcm
 ```{r GO and KEGG analysis for each subset in sampleInfoDcmHcm}
->>>>>>> 2e4f4dfc60826989904547816d49659666d527cc
-# GO and KEGG analysis for each subgroup in sampleInfoDcmHcm
 pathwaySubset <- list()
 
 for (subset in names(sampleInfoDcmHcm)) {
@@ -414,12 +409,9 @@ names(pathwaySubset) <- names(sampleInfoDcmHcm)
 rm(SInfoSubs, gxDataSubs, DEAentrezSubs, GOsubs, KEGGsubs)
 ```
 
-<<<<<<< HEAD
-```{r}
-=======
+
 WARNING: generates lots of files, use at own discretion
 ```{r Pathway visualization for subsets in sampleInfoDcmHcm}
->>>>>>> 2e4f4dfc60826989904547816d49659666d527cc
 PThreshold = 0.05
 
 if(fs::dir_exists("output/pathview_xmls")) {
@@ -444,11 +436,8 @@ for(set in names(pathwaySubset)) {
   
   keggresids <- pathwaySubset[[set]]$KEGGResults[-removeRows, ] %>% filter(P.Up < PThreshold | P.Down < PThreshold)
   keggresids <- gsub("^path:","" , rownames(keggresids)) 
-<<<<<<< HEAD
-  foldchanges <- pathwaySubset[[set]]$DEAResults$results %>% dplyr::selectselect(1)
-=======
+
   foldchanges <- pathwaySubset[[set]]$DEAResults$results %>% dplyr::select(1)
->>>>>>> 2e4f4dfc60826989904547816d49659666d527cc
   
 # plot multiple pathways (plots saved to disk and returns a throwaway list object)
   
