@@ -168,7 +168,11 @@ DifferentialGeneExpressionCalc <- function(assayData, phenoData, saveResultsOnly
 DEA_DonorVsAll <- DifferentialGeneExpressionCalc(gxData, sampleInfo)
 ```
 
+<<<<<<< HEAD
 ## DEA on Sex
+=======
+
+>>>>>>> d2772e480d1907a4a5ae66ae9f0ffeb0dd386f0c
 ```{r DEA on sex}
 DifferentialGeneExpressionCalcSex <- function(assayData, phenoData, saveResultsOnly = T) {
   # Create ExpressionSet object
@@ -206,7 +210,11 @@ DifferentialGeneExpressionCalcSex <- function(assayData, phenoData, saveResultsO
     list("expressionSet" = eset, "designMatrix" = design, "fittedModel" = fit2, "results" = df)
   }
 }
+<<<<<<< HEAD
 DEA_Sex <- DifferentialGeneExpressionCalcSex(gxData[, sampleInfo$Disease == "DCM"], sampleInfo[sampleInfo$Disease == "DCM", ], saveResultsOnly = F)
+=======
+#DEA_Sex <- DifferentialGeneExpressionCalcSex(gxData[,sampleInfo$Disease == "DCM"], sampleInfo[sampleInfo$Disease == "DCM",], saveResultsOnly = F)
+>>>>>>> d2772e480d1907a4a5ae66ae9f0ffeb0dd386f0c
 ```
 
 ## DEA in male and female DCM patients
@@ -321,7 +329,12 @@ sampleInfoDcmHcm <- sampleInfoTemp[-grep("HCM_Male_African.American", names(samp
 rm(sampleInfoTemp, sampleInfoSubsets, sampleInfoDonor, sampleInfoDis, sampleInfoEth, sampleInfoSx, Dis, Sx, Eth)
 ```
 
+<<<<<<< HEAD
 ## Gene Annotation Biomart
+=======
+
+##Gene Annotation Biomart
+>>>>>>> d2772e480d1907a4a5ae66ae9f0ffeb0dd386f0c
 ```{r biomart gene annotation}
 
 mart <- useMart("ensembl")
@@ -369,11 +382,12 @@ gxDataEntrez <- gxData %>%
 # GO and KEGG analysis for all subjects
 DEAentrez <- DifferentialGeneExpressionCalc(gxDataEntrez, sampleInfo, saveResultsOnly = F)
 
-GOResults <- goana(DEAentrez$fittedModel)
-KEGGResults <- kegga(DEAentrez$fittedModel)
+GOResultsSex <- goana(DEAentrez$fittedModel)
+KEGGResultsSex <- kegga(DEAentrez$fittedModel)
 ```
 
 WARNING: generates lots of files, use at own discretion
+<<<<<<< HEAD
 ## Pathway analysis
 ```{r Pathway plotting}
 PThreshold <- 0.05
@@ -388,14 +402,27 @@ tmp <- sapply(keggresids, function(pid) pathview(gene.data = foldchanges, pathwa
 
 ## Sex pathway analysis
 ```{r}
+=======
+##Sex pathway analysis
+```{r sex dge go and kegg data generation}
+>>>>>>> d2772e480d1907a4a5ae66ae9f0ffeb0dd386f0c
 # GO and KEGG analysis for all subjects
 # DEA_Sex <- DifferentialGeneExpressionCalcSex(gxData[,sampleInfo$Disease == "DCM"], sampleInfo[sampleInfo$Disease == "DCM",], saveResultsOnly = F)
 DEAentrezSex <- DifferentialGeneExpressionCalcSex(gxDataEntrez[, sampleInfo$Disease == "DCM"], sampleInfo[sampleInfo$Disease == "DCM", ], saveResultsOnly = F)
 
-# GOResults <- goana(DEAentrezSex$fittedModel)
-# KEGGResults <- kegga(DEAentrezSex$fittedModel)
+GOResultsSex <- goana(DEAentrezSex$fittedModel)
+KEGGResultsSex <- kegga(DEAentrezSex$fittedModel)
+```
 
+```{r sex pathway plotting}
+removeRows <- c(grep(".* - other$", KEGGResultsSex$Pathway), 
+                grep(".* - animal$", KEGGResultsSex$Pathway), 
+                grep(".* - multiple species$", KEGGResultsSex$Pathway), 
+                which(rownames(KEGGResultsSex) == "path:hsa01100"),
+                which(rownames(KEGGResultsSex) == "path:hsa04723"),
+                which(rownames(KEGGResultsSex) == "path:hsa05206"))
 
+<<<<<<< HEAD
 removeRows <- c(
   grep(".* - other$", KEGGResults$Pathway),
   grep(".* - animal$", KEGGResults$Pathway),
@@ -408,9 +435,21 @@ removeRows <- c(
 sigKeggResults <- KEGGResults[-removeRows, ] %>% filter(P.Up < PThreshold | P.Down < PThreshold)
 keggresids <- gsub("^path:", "", rownames(sigKeggResults))
 # keggresids <- substr(rownames(KEGGResults[which(KEGGResults$P.Up < PThreshold | KEGGResults$P.Down < PThreshold),]), 6, 13)
+=======
+sigKEGGResultsSex <- KEGGResultsSex[-removeRows,] %>% filter(P.Up < PThreshold | P.Down < PThreshold)
+keggresids <- gsub("^path:","" , rownames(sigKEGGResultsSex))
+# keggresids <- substr(rownames(KEGGResultsSex[which(KEGGResultsSex$P.Up < PThreshold | KEGGResultsSex$P.Down < PThreshold),]), 6, 13)
+>>>>>>> d2772e480d1907a4a5ae66ae9f0ffeb0dd386f0c
 foldchanges <- DEAentrezSex$results %>% dplyr::select(1)
 
-# setwd("./output/sex/")
+dir = "./output/sex"
+if (fs::dir_exists(paste("output/", set, sep = ""))) {
+    cat("'", dir, "' already exists\n", sep = "")
+} else {
+    fs::dir_create(dir)
+}
+
+setwd(dir)
 for (pid in keggresids) {
   pathview(gene.data = foldchanges, pathway.id = pid, species = "hsa")
 }
@@ -419,7 +458,10 @@ for (pid in keggresids) {
 
 ## GO and KEGG analysis for each subgroup in sampleInfoDcmHcm
 ```{r GO and KEGG analysis for each subset in sampleInfoDcmHcm}
+<<<<<<< HEAD
 # GO and KEGG analysis for each subgroup in sampleInfoDcmHcm
+=======
+>>>>>>> d2772e480d1907a4a5ae66ae9f0ffeb0dd386f0c
 pathwaySubset <- list()
 
 for (subset in names(sampleInfoDcmHcm)) {
@@ -437,16 +479,27 @@ names(pathwaySubset) <- names(sampleInfoDcmHcm)
 rm(SInfoSubs, gxDataSubs, DEAentrezSubs, GOsubs, KEGGsubs)
 ```
 
+<<<<<<< HEAD
 WARNING: generates lots of files, use at own discretion
 ```{r}
 PThreshold <- 0.05
+=======
+
+WARNING: generates lots of files, use at own discretion
+```{r Pathway visualization for subsets in sampleInfoDcmHcm}
+PThreshold = 0.05
+>>>>>>> d2772e480d1907a4a5ae66ae9f0ffeb0dd386f0c
 
 if (fs::dir_exists("output/pathview_xmls")) {
   cat("'output/pathview_xmls' already exist")
 } else {
   fs::dir_create("output/pathview_xmls")
 }
+<<<<<<< HEAD
 if (fs::dir_exists("output/pathview_rawPNGs")) {
+=======
+if(fs::dir_exists("output/pathview_rawPNGs")) {
+>>>>>>> d2772e480d1907a4a5ae66ae9f0ffeb0dd386f0c
   cat("'output/pathview_rawPNGs' already exist")
 } else {
   fs::dir_create("output/pathview_rawPNGs")
@@ -463,12 +516,22 @@ for (set in names(pathwaySubset)) {
   )
 
   keggresids <- pathwaySubset[[set]]$KEGGResults[-removeRows, ] %>% filter(P.Up < PThreshold | P.Down < PThreshold)
+<<<<<<< HEAD
   keggresids <- gsub("^path:", "", rownames(keggresids))
   foldchanges <- pathwaySubset[[set]]$DEAResults$results %>% dplyr::select(1)
 
   # plot multiple pathways (plots saved to disk and returns a throwaway list object)
 
   # create directory if not existing already
+=======
+  keggresids <- gsub("^path:","" , rownames(keggresids)) 
+
+  foldchanges <- pathwaySubset[[set]]$DEAResults$results %>% dplyr::select(1)
+  
+# plot multiple pathways (plots saved to disk and returns a throwaway list object)
+  
+  # create directory if not existing already  
+>>>>>>> d2772e480d1907a4a5ae66ae9f0ffeb0dd386f0c
   if (fs::dir_exists(paste("output/", set, sep = ""))) {
     cat("'output/", set, "' already exists\n", sep = "")
   } else {
