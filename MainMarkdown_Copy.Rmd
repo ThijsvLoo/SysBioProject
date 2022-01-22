@@ -254,8 +254,8 @@ DifferentialGeneExpressionCalcSexDis <- function(assayData, phenoData, saveResul
   
   # Create a contrasts matrix
   cm <- makeContrasts(
-    MaleVsFemaleDCM = Sex.DiseaseMale.DCM - Sex.DiseaseFemale.DCM,
-    MaleVsFemaleDonor = Sex.DiseaseMale.Donor - Sex.DiseaseFemale.Donor,
+    #MaleVsFemaleDCM = Sex.DiseaseMale.DCM - Sex.DiseaseFemale.DCM,
+    #MaleVsFemaleDonor = Sex.DiseaseMale.Donor - Sex.DiseaseFemale.Donor,
     MFDCMDonor = (Sex.DiseaseMale.DCM - Sex.DiseaseFemale.DCM) - (Sex.DiseaseMale.Donor - Sex.DiseaseFemale.Donor),
     levels = design
   )
@@ -339,16 +339,16 @@ sigKEGGResultsSexDonor <- KEGGResultsSexDonor[-removeRows,] %>% filter(P.Up < PT
 if (all(gsub("^path:","" , rownames(sigKEGGResultsSexDCM)) == gsub("^path:","" , rownames(sigKEGGResultsSexDonor))) ) {
   keggresids <- gsub("^path:","" , rownames(sigKEGGResultsSexDCM))
 } else {
-  keggresids <- unique(c(gsub("^path:","" , rownames(sigKEGGResultsSexDCM)), gsub("^path:","" , rownames(sigKEGGResultsSexDonor)))) %>% sort()
+  keggresidsDonorDCM <- unique(c(gsub("^path:","" , rownames(sigKEGGResultsSexDCM)), gsub("^path:","" , rownames(sigKEGGResultsSexDonor)))) %>% sort()
 }
 
 # keggresids <- substr(rownames(KEGGResultsSex[which(KEGGResultsSex$P.Up < PThreshold | KEGGResultsSex$P.Down < PThreshold),]), 6, 13)
 foldchangesDCM <- DEAentrezSexDCM$results %>% dplyr::select(logFC_MaleVsFemale) %>% transmute(logFC_MaleVsFemale_DCM = logFC_MaleVsFemale) %>% rownames_to_column(var = "entrez_id")
-foldchanges <- DEAentrezSexDonor$results %>% dplyr::select(logFC_MaleVsFemale) %>% transmute(logFC_MaleVsFemale_Donor = logFC_MaleVsFemale) %>% rownames_to_column(var = "entrez_id") %>% right_join(foldchangesDCM, by = "entrez_id") %>% column_to_rownames(var = "entrez_id")
+foldchangesDonorDCM <- DEAentrezSexDonor$results %>% dplyr::select(logFC_MaleVsFemale) %>% transmute(logFC_MaleVsFemale_Donor = logFC_MaleVsFemale) %>% rownames_to_column(var = "entrez_id") %>% right_join(foldchangesDCM, by = "entrez_id") %>% column_to_rownames(var = "entrez_id")
 rm(foldchangesDCM)
 
-foldchangesQuad <- foldchangesMF %>% rownames_to_column(var = "entrez_id") %>% right_join(foldchanges, by = "entrez_id") %>% column_to_rownames(var = "entrez_id")
-foldchangesQuad <- foldchangesQuad %>% relocate(c("logFC_MaleVsFemale_Donor", "logFC_MaleVsFemale_DCM", "logFC_DonorVsDCM_Male"), .before = "logFC_DonorVsDCM_Female")
+#foldchangesQuad <- foldchangesMF %>% rownames_to_column(var = "entrez_id") %>% right_join(foldchanges, by = "entrez_id") %>% column_to_rownames(var = "entrez_id")
+#foldchangesQuad <- foldchangesQuad %>% relocate(c("logFC_MaleVsFemale_Donor", "logFC_MaleVsFemale_DCM", "logFC_DonorVsDCM_Male"), .before = "logFC_DonorVsDCM_Female")
 ```
 ```{r, echo = F}
 dir = "./output/sex"
@@ -359,8 +359,8 @@ if (fs::dir_exists(dir)) {
 }
 
 setwd(dir)
-for (pid in keggresids) {
-  pathview(gene.data = foldchanges, pathway.id = pid, species = "hsa", multi.state = T, kegg.dir = getwd(), low = list(gene = "#440154FF"), mid = list(gene = "#21908CFF"), high = list(gene = "#FDE725FF"))#, kegg.dir = dir)
+for (pid in keggresidsDonorDCM) {
+  pathview(gene.data = foldchangesDonorDCM, pathway.id = pid, species = "hsa", multi.state = T, kegg.dir = getwd(), low = list(gene = "#440154FF"), mid = list(gene = "#21908CFF"), high = list(gene = "#FDE725FF"))#, kegg.dir = dir)
 }
 ```
 
@@ -393,7 +393,8 @@ sigKEGGresultsSex <- KEGGresultsSex[-removeRows,] %>% filter(P.Up < PThreshold |
 keggresids <- gsub("^path:","" , rownames(sigKEGGresultsSex))
 # keggresids <- substr(rownames(KEGGResultsSex[which(KEGGResultsSex$P.Up < PThreshold | KEGGResultsSex$P.Down < PThreshold),]), 6, 13)
 foldchanges <- DEA_Sex$results %>% dplyr::select(1)
-
+```
+```{r}
 dir = "./output/sex"
 if (fs::dir_exists(paste("output/sex", sep = ""))) {
     cat("'", dir, "' already exists\n", sep = "")
@@ -438,11 +439,12 @@ removeRows <- c(
 
 PThreshold <- 0.05
 
-sigKEGGresultsSexDis <- KEGGresultsSexDis[-removeRows,] %>% filter(P.Up < PThreshold | P.Down < PThreshold)
-keggresids <- gsub("^path:","" , rownames(sigKEGGresultsSexDis))
+sigKEGGresultsSexDis <- KEGGresultsSexDis[-removeRows,] %>% filter(P.Up < PThreshold | P.Down < PThreshold) 
+keggresidsSexDis <- unique(c(gsub("^path:","" , rownames(sigKEGGresultsSexDis)), keggresids))
 # keggresids <- substr(rownames(KEGGResultsSex[which(KEGGResultsSex$P.Up < PThreshold | KEGGResultsSex$P.Down < PThreshold),]), 6, 13)
 
-foldchangesSexDis <- DEA_SexDis$results %>% dplyr::select(grep("logFC.*", colnames(DEA_SexDis$results)))
+foldchangesDonorDCM <- foldchangesDonorDCM %>% rownames_to_column(var = "entrez_id")
+foldchangesSexDis <- DEA_SexDis$results %>% dplyr::select(grep("logFC.*", colnames(DEA_SexDis$results))) %>% rownames_to_column(var = "entrez_id") %>% right_join(foldchangesDonorDCM, by = "entrez_id") %>% column_to_rownames(var = "entrez_id")
 ```
 ```{r}  
 dir = "./output/sexcomb"
@@ -455,7 +457,7 @@ if (fs::dir_exists(dir)) {
 col <- viridisLite::viridis(10, option = "E", begin = 0.2)
 
 setwd(dir)
-for (pid in keggresids) {
+for (pid in keggresidsSexDis) {
   pathview(gene.data = foldchangesSexDis, pathway.id = pid, species = "hsa", multi.state = T, low = col[1], mid = "grey", high = col[10])#, kegg.dir = dir)
 }
 ```
