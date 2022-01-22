@@ -1,0 +1,750 @@
+---
+title: "MainMarkdown"
+output: html_document
+---
+## Setup
+```{r setup}
+library(limma)
+library(Biobase)
+library(biomaRt)
+library(WGCNA)
+library(pathview)
+library(tidyverse)
+```
+
+## Load and pre-clean data
+```{r load data}
+gxData <- read.delim("./Data/MAGNET_GeneExpressionData_CPM_19112020.txt", as.is = T, row.names = 1)
+sampleInfo <- read.delim("./Data/MAGNET_SampleData_19112020.txt", as.is = T, row.names = 1)
+sampleInfo <- sampleInfo %>% mutate(
+  Disease = factor(Disease, levels = unique(Disease)),
+  Sex = factor(Sex, levels = unique(Sex)),
+  Ethnicity = factor(Ethnicity, levels = unique(Ethnicity))
+)
+geneTotExonLengths <- read.delim("./Data/MAGNET_exonLengths.txt", as.is = T, row.names = 1)
+sampleInfoExtended <- read.delim("https://raw.githubusercontent.com/mpmorley/MAGNet/master/phenoData.csv", sep = ",", as.is = T)
+sampleInfoExtendedClean <- sampleInfoExtended %>%
+  mutate(
+    Disease = factor(etiology, levels = c("PPCM", "HCM", "DCM", "NF"), labels = c("PPCM", "HCM", "DCM", "Donor")),
+    Ethnicity = factor(race, levels = unique(race), labels = levels(sampleInfo$Ethnicity)),
+    BMI = round(weight / (height / 100)^2, digits = 1),
+    Sex = factor(gender),
+    Diabetes = as.logical(factor(Diabetes, levels = c("Yes", "No"), labels = c("TRUE", "FALSE"))),
+    Hypertension = as.logical(factor(Hypertension, levels = c("Yes", "No"), labels = c("TRUE", "FALSE"))),
+    Atrial.Fibrillation = as.logical(factor(afib, levels = c("Yes", "No"), labels = c("TRUE", "FALSE"))),
+    VTVF = as.logical(factor(VTVF, levels = c("Yes", "No"), labels = c("TRUE", "FALSE")))
+  ) %>%
+  relocate(c("Disease", "Ethnicity", "Sex", "Diabetes", "Hypertension", "Atrial.Fibrillation", "VTVF", "BMI", "age", "LVEF"), .after = "sample_name") %>%
+  dplyr::select(-c("etiology", "race", "gender", "afib", "disease_race")) %>%
+  dplyr::rename("Age" = "age", "LV.EjectionFraction" = "LVEF")
+```
+
+## Python lives here now...
+```{python, eval = F}
+import pandas as pd
+import seaborn as sns
+```
+
+## fpkm
+```{r convert cpm to fpkm values}
+all(rownames(geneTotExonLengths) == rownames(gxData)) # TRUE (just a check)
+cpm2fpkm <- function(x) {
+  geneTotExonLengths_kb <- geneTotExonLengths[, 1] / 1E3
+  .t <- 2^(x) / geneTotExonLengths_kb
+  # 	.t <- 2^(x) * 1E3 / geneTotExonLengths[, 1] # this does the same, but shorter
+}
+gxData_fpkm <- cpm2fpkm(gxData)
+```
+
+## Gene Annotation Biomart
+```{r biomart gene annotation}
+
+mart <- useMart("ensembl")
+# set to use ensemble database for humans
+mart <- useDataset("hsapiens_gene_ensembl", mart)
+# listAttributes(mart) #to get a list of possible attributes
+
+# get gene annotation data from ensembl database
+geneAnnotationData <- getBM(
+  attributes = c(
+    "ensembl_gene_id",
+    # "ensembl_gene_id_version",
+    "go_id",
+    "entrezgene_id",
+    "chromosome_name",
+    "external_gene_name",
+    "hgnc_symbol",
+    "description"
+  ),
+  mart = mart,
+  filters = "ensembl_gene_id",
+  values = rownames(gxData),
+  uniqueRows = T
+)
+```
+
+## use entrez IDs in expression data
+```{r Gene Ontology and Gene Enrichment Analysis, error = F, eval = F}
+uniqEntrezGenes <- geneAnnotationData %>%
+  select(c("ensembl_gene_id", "entrezgene_id")) %>%
+  distinct() %>%
+  arrange(ensembl_gene_id, entrezgene_id) %>%
+  filter(!duplicated(ensembl_gene_id)) %>%
+  arrange(entrezgene_id, ensembl_gene_id) %>%
+  filter(!duplicated(entrezgene_id), !is.na(entrezgene_id))
+
+gxDataEntrez <- gxData %>%
+  rownames_to_column(var = "ensembl_gene_id") %>%
+  filter(ensembl_gene_id %in% uniqEntrezGenes$ensembl_gene_id) %>%
+  left_join(uniqEntrezGenes, by = "ensembl_gene_id") %>%
+  select(-ensembl_gene_id) %>%
+  column_to_rownames(var = "entrezgene_id")
+
+```
+
+## Gene - KEGG links
+```{r}
+geneKEGGLinks <- getGeneKEGGLinks(species.KEGG = "hsa", convert = FALSE)
+pathwayNamesKEGG <- getKEGGPathwayNames(species.KEGG = "hsa", remove.qualifier = T)
+```
+
+## Functions for Differential Gene Expression
+### DEA by Disease
+```{r dge on disease}
+# Create ExpressionSet object
+DifferentialGeneExpressionCalc <- function(assayData, phenoData, saveResultsOnly = T) {
+  # Create ExpressionSet object
+  eset <- ExpressionSet(assayData = data.matrix(assayData), phenoData = AnnotatedDataFrame(phenoData))
+  design <- model.matrix(~ 0 + Disease + Diabetes + Hypertension + BMI, data = pData(eset))
+
+  df <- data.frame(matrix(ncol = 0, nrow = length(as.matrix(assayData[1]))))
+
+  DisVec <- unique(phenoData$Disease)
+  # Create a contrasts matrix
+  if (all(c("DCM", "HCM", "PPCM") %in% DisVec) == T) {
+    cm <- makeContrasts(
+      DonorVsPPCM = DiseaseDonor - DiseasePPCM,
+      DonorVsHCM = DiseaseDonor - DiseaseHCM,
+      DonorVsDCM = DiseaseDonor - DiseaseDCM,
+      levels = design
+    )
+  } else if (all(c("DCM", "HCM") %in% DisVec) == T) {
+    cm <- makeContrasts(
+      DonorVsHCM = DiseaseDonor - DiseaseHCM,
+      DonorVsDCM = DiseaseDonor - DiseaseDCM,
+      levels = design
+    )
+  } else if (all(c("DCM", "PPCM") %in% DisVec) == T) {
+    cm <- makeContrasts(
+      DonorVsPPCM = DiseaseDonor - DiseasePPCM,
+      DonorVsDCM = DiseaseDonor - DiseaseDCM,
+      levels = design
+    )
+  } else if (all(c("PPCM", "HCM") %in% DisVec) == T) {
+    cm <- makeContrasts(
+      DonorVsHCM = DiseaseDonor - DiseaseHCM,
+      DonorVsPPCM = DiseaseDonor - DiseasePPCM,
+      levels = design
+    )
+  } else if (("DCM" %in% DisVec) == T) {
+    cm <- makeContrasts(
+      DonorVsDCM = DiseaseDonor - DiseaseDCM,
+      levels = design
+    )
+  } else if (("HCM" %in% DisVec) == T) {
+    cm <- makeContrasts(
+      DonorVsHCM = DiseaseDonor - DiseaseHCM,
+      levels = design
+    )
+  } else if (("PPCM" %in% DisVec) == T) {
+    cm <- makeContrasts(
+      DonorVsPPCM = DiseaseDonor - DiseasePPCM,
+      levels = design
+    )
+  }
+
+  for (comparison in colnames(cm)) {
+    # Fit the model
+    fit <- lmFit(eset, design)
+    # nice
+    # Fit the contrasts
+    fit2 <- contrasts.fit(fit, contrasts = cm[, comparison])
+    # Calculate the t-statistics for the contrasts
+    fit2 <- eBayes(fit2)
+
+    diffGenExprTestData <- topTable(fit2, adjust = "fdr", number = nrow(gxData))
+    diffGenExprTestDecision <- decideTests(fit2, adjust.method = "fdr", p.value = 0.05, lfc = 1)
+    colnames(diffGenExprTestData) <- paste(colnames(diffGenExprTestData), comparison, sep = "_")
+    colnames(diffGenExprTestDecision) <- paste("decideTests", comparison, sep = "_")
+
+    df <- cbind(df, diffGenExprTestData, diffGenExprTestDecision)
+  }
+
+  if (saveResultsOnly == T) {
+    df
+  } else {
+    list("expressionSet" = eset, "designMatrix" = design, "fittedModel" = fit2, "results" = df)
+  }
+}
+
+#DEA_DonorVsAll <- DifferentialGeneExpressionCalc(gxData, sampleInfoExtendedClean)
+```
+
+### DEA by Sex
+```{r DEA on sex}
+
+DifferentialGeneExpressionCalcSex <- function(assayData, phenoData, saveResultsOnly = T) {
+  # Create ExpressionSet object
+  eset <- ExpressionSet(assayData = data.matrix(assayData), phenoData = AnnotatedDataFrame(phenoData))
+  design <- model.matrix(~ 0 + Sex + Diabetes + Hypertension + BMI, data = pData(eset))
+  
+print("design matrix"); print(head(design)); print(dim(design)); print(class(design))
+
+  df <- data.frame(matrix(ncol = 0, nrow = length(as.matrix(assayData[1]))))
+  
+  # Create a contrasts matrix
+  cm <- makeContrasts(
+    MaleVsFemale = SexMale - SexFemale,
+    levels = design
+  )
+  
+print(cm)
+
+  for (comparison in colnames(cm)) {
+    # Fit the model
+    fit <- lmFit(eset, design)
+    # nice
+    # Fit the contrasts
+    fit2 <- contrasts.fit(fit, contrasts = cm[, comparison])
+    # Calculate the t-statistics for the contrasts
+    fit2 <- eBayes(fit2)
+
+    diffGenExprTestData <- topTable(fit2, adjust = "fdr", number = nrow(gxData))
+    diffGenExprTestDecision <- decideTests(fit2, adjust.method = "fdr", p.value = 0.05, lfc = 1)
+    colnames(diffGenExprTestData) <- paste(colnames(diffGenExprTestData), comparison, sep = "_")
+    colnames(diffGenExprTestDecision) <- paste("decideTests", comparison, sep = "_")
+
+    df <- cbind(df, diffGenExprTestData, diffGenExprTestDecision)
+  }
+  if (saveResultsOnly == T) {
+    df
+  } else {
+    list("expressionSet" = eset, "designMatrix" = design, "fittedModel" = fit2, "results" = df)
+  }
+}
+
+sampleInfoEC <- sampleInfoExtendedClean %>% column_to_rownames(var = "sample_name") %>% filter(Disease == "Donor" | Disease == "DCM") %>% filter(!is.na(Diabetes), !is.na(Hypertension), !is.na(BMI)) %>% mutate(Disease = factor(Disease, levels = c("Donor", "DCM"), labels = c("Donor", "DCM"))) %>% mutate(Sex.Disease = paste(Sex, Disease, sep = "."))
+gxDataEntrezEC <- gxDataEntrez %>% select(rownames(sampleInfoEC))
+
+DEA_Sex <- DifferentialGeneExpressionCalcSex(gxDataEntrezEC, sampleInfoEC, saveResultsOnly = F)
+
+```
+
+### DEA on Sex and Disease
+```{r DEA on sex and Disease}
+
+DifferentialGeneExpressionCalcSexDis <- function(assayData, phenoData, saveResultsOnly = T) {
+  # Create ExpressionSet object
+  eset <- ExpressionSet(assayData = data.matrix(assayData), phenoData = AnnotatedDataFrame(phenoData))
+  design <- model.matrix(~ 0 + Sex.Disease + Diabetes + Hypertension + BMI, data = pData(eset))
+  
+  print("design matrix:"); print(head(design))
+
+  df <- data.frame(matrix(ncol = 0, nrow = length(as.matrix(assayData[1]))))
+  
+  # Create a contrasts matrix
+  cm <- makeContrasts(
+    MaleVsFemaleDCM = Sex.DiseaseMale.DCM - Sex.DiseaseFemale.DCM,
+    MaleVsFemaleDonor = Sex.DiseaseMale.Donor - Sex.DiseaseFemale.Donor,
+    MFDCMDonor = (Sex.DiseaseMale.DCM - Sex.DiseaseFemale.DCM) - (Sex.DiseaseMale.Donor - Sex.DiseaseFemale.Donor),
+    levels = design
+  )
+  
+  print("contrast matrix:"); print(cm)
+  
+  for (comparison in colnames(cm)) {
+    # Fit the model
+    fit <- lmFit(eset, design)
+    # nice
+    # Fit the contrasts
+    fit2 <- contrasts.fit(fit, contrasts = cm[, comparison])
+    # Calculate the t-statistics for the contrasts
+    fit2 <- eBayes(fit2)
+
+    diffGenExprTestData <- topTable(fit2, adjust = "fdr", number = nrow(gxData))
+    diffGenExprTestDecision <- decideTests(fit2, adjust.method = "fdr", p.value = 0.05, lfc = 1)
+    colnames(diffGenExprTestData) <- paste(colnames(diffGenExprTestData), comparison, sep = "_")
+    colnames(diffGenExprTestDecision) <- paste("decideTests", comparison, sep = "_")
+
+    df <- cbind(df, diffGenExprTestData, diffGenExprTestDecision)
+  }
+  if (saveResultsOnly == T) {
+    df
+  } else {
+    list("expressionSet" = eset, "designMatrix" = design, "fittedModel" = fit2, "results" = df)
+  }
+}
+```
+
+## Analysis on Sexes
+### GO and KEGG analysis
+```{r sex dea go and kegg data generation}
+# DEA_Sex <- DifferentialGeneExpressionCalcSex(gxData[,sampleInfo$Disease == "DCM"], sampleInfo[sampleInfo$Disease == "DCM",], saveResultsOnly = F)
+sampleInfoDCM <- sampleInfoExtendedClean %>%
+  filter(Disease == "DCM", !is.na(Diabetes), !is.na(Hypertension), !is.na(BMI)) %>%
+  mutate(Disease = factor(Disease)) %>%
+  column_to_rownames(var = "sample_name")
+gxDataEntrezDCM <- gxDataEntrez %>%
+  select(rownames(sampleInfoDCM))
+
+sampleInfoDonor <- sampleInfoExtendedClean %>%
+  filter(Disease == "Donor", !is.na(Diabetes), !is.na(Hypertension), !is.na(BMI)) %>%
+  mutate(Disease = factor(Disease)) %>%
+  column_to_rownames(var = "sample_name")
+gxDataEntrezDonor <- gxDataEntrez %>%
+  select(rownames(sampleInfoDonor))
+
+
+DEAentrezSexDCM <- DifferentialGeneExpressionCalcSex(gxDataEntrezDCM, sampleInfoDCM, saveResultsOnly = F)
+GOResultsSexDCM <- goana(DEAentrezSexDCM$fittedModel)
+KEGGResultsSexDCM <- kegga(DEAentrezSexDCM$fittedModel)
+
+DEAentrezSexDonor <- DifferentialGeneExpressionCalcSex(gxDataEntrezDonor, sampleInfoDonor, saveResultsOnly = F)
+GOResultsSexDonor <- goana(DEAentrezSexDonor$fittedModel)
+KEGGResultsSexDonor <- kegga(DEAentrezSexDonor$fittedModel)
+```
+
+### Pathway plotting
+```{r sex pathway plotting}
+removeRows <- c(
+  grep(".* - other$", KEGGResultsSexDCM$Pathway),
+  grep(".* - animal$", KEGGResultsSexDCM$Pathway),
+  grep(".* - multiple species$", KEGGResultsSexDCM$Pathway),
+  which(rownames(KEGGResultsSexDCM) == "path:hsa01100"),
+  which(rownames(KEGGResultsSexDCM) == "path:hsa04723"),
+  which(rownames(KEGGResultsSexDCM) == "path:hsa05206")
+)
+sigKEGGResultsSexDCM <- KEGGResultsSexDCM[-removeRows,] %>% filter(P.Up < PThreshold | P.Down < PThreshold)
+
+removeRows <- c(
+  grep(".* - other$", KEGGResultsSexDonor$Pathway),
+  grep(".* - animal$", KEGGResultsSexDonor$Pathway),
+  grep(".* - multiple species$", KEGGResultsSexDonor$Pathway),
+  which(rownames(KEGGResultsSexDonor) == "path:hsa01100"),
+  which(rownames(KEGGResultsSexDonor) == "path:hsa04723"),
+  which(rownames(KEGGResultsSexDonor) == "path:hsa05206")
+)
+sigKEGGResultsSexDonor <- KEGGResultsSexDonor[-removeRows,] %>% filter(P.Up < PThreshold | P.Down < PThreshold)
+
+if (all(gsub("^path:","" , rownames(sigKEGGResultsSexDCM)) == gsub("^path:","" , rownames(sigKEGGResultsSexDonor))) ) {
+  keggresids <- gsub("^path:","" , rownames(sigKEGGResultsSexDCM))
+} else {
+  keggresids <- unique(c(gsub("^path:","" , rownames(sigKEGGResultsSexDCM)), gsub("^path:","" , rownames(sigKEGGResultsSexDonor)))) %>% sort()
+}
+
+# keggresids <- substr(rownames(KEGGResultsSex[which(KEGGResultsSex$P.Up < PThreshold | KEGGResultsSex$P.Down < PThreshold),]), 6, 13)
+foldchangesDCM <- DEAentrezSexDCM$results %>% dplyr::select(logFC_MaleVsFemale) %>% transmute(logFC_MaleVsFemale_DCM = logFC_MaleVsFemale) %>% rownames_to_column(var = "entrez_id")
+foldchanges <- DEAentrezSexDonor$results %>% dplyr::select(logFC_MaleVsFemale) %>% transmute(logFC_MaleVsFemale_Donor = logFC_MaleVsFemale) %>% rownames_to_column(var = "entrez_id") %>% right_join(foldchangesDCM, by = "entrez_id") %>% column_to_rownames(var = "entrez_id")
+rm(foldchangesDCM)
+
+foldchangesQuad <- foldchangesMF %>% rownames_to_column(var = "entrez_id") %>% right_join(foldchanges, by = "entrez_id") %>% column_to_rownames(var = "entrez_id")
+foldchangesQuad <- foldchangesQuad %>% relocate(c("logFC_MaleVsFemale_Donor", "logFC_MaleVsFemale_DCM", "logFC_DonorVsDCM_Male"), .before = "logFC_DonorVsDCM_Female")
+```
+```{r, echo = F}
+dir = "./output/sex"
+if (fs::dir_exists(dir)) {
+    cat("'", dir, "' already exists\n", sep = "")
+} else {
+    fs::dir_create(dir)
+}
+
+setwd(dir)
+for (pid in keggresids) {
+  pathview(gene.data = foldchanges, pathway.id = pid, species = "hsa", multi.state = T, kegg.dir = getwd(), low = list(gene = "#440154FF"), mid = list(gene = "#21908CFF"), high = list(gene = "#FDE725FF"))#, kegg.dir = dir)
+}
+```
+
+WARNING: generates lots of files, use at own discretion
+##Sex pathway analysis
+### GO and KEGG analysis
+```{r sex dge go and kegg data generation}
+# GO and KEGG analysis for all subjects
+# DEA_Sex <- DifferentialGeneExpressionCalcSex(gxData[,sampleInfo$Disease == "DCM"], sampleInfo[sampleInfo$Disease == "DCM",], saveResultsOnly = F)
+
+sampleInfoEC <- sampleInfoExtendedClean %>% column_to_rownames(var = "sample_name") %>% filter(Disease == "Donor" | Disease == "DCM") %>% filter(!is.na(Diabetes), !is.na(Hypertension), !is.na(BMI)) %>% mutate(Disease = factor(Disease, levels = c("Donor", "DCM"), labels = c("Donor", "DCM"))) %>% mutate(Sex.Disease = paste(Sex, Disease, sep = "."))
+
+gxDataEntrezSex <- gxDataEntrez %>% select(rownames(sampleInfoEC))
+
+DEA_Sex <- DifferentialGeneExpressionCalcSex(gxDataEntrezSex, sampleInfoEC, saveResultsOnly = F)
+head(DEA_Sex$results)
+
+GOResultsSex <- goana(DEA_Sex$fittedModel)
+KEGGresultsSex <- kegga(DEA_Sex$fittedModel)
+```
+### pathway plotting
+```{r sex pathway plotting}
+removeRows <- c(grep(".* - other$", KEGGresultsSex$Pathway), 
+                grep(".* - animal$", KEGGresultsSex$Pathway), 
+                grep(".* - multiple species$", KEGGresultsSex$Pathway), 
+                which(rownames(KEGGresultsSex) == "path:hsa01100"),
+                which(rownames(KEGGresultsSex) == "path:hsa04723"),
+                which(rownames(KEGGresultsSex) == "path:hsa05206"))
+sigKEGGresultsSex <- KEGGresultsSex[-removeRows,] %>% filter(P.Up < PThreshold | P.Down < PThreshold)
+keggresids <- gsub("^path:","" , rownames(sigKEGGresultsSex))
+# keggresids <- substr(rownames(KEGGResultsSex[which(KEGGResultsSex$P.Up < PThreshold | KEGGResultsSex$P.Down < PThreshold),]), 6, 13)
+foldchanges <- DEA_Sex$results %>% dplyr::select(1)
+
+dir = "./output/sex"
+if (fs::dir_exists(paste("output/sex", sep = ""))) {
+    cat("'", dir, "' already exists\n", sep = "")
+} else {
+    fs::dir_create(dir)
+}
+setwd(dir)
+for (pid in keggresids) {
+  pathview(gene.data = foldchanges, pathway.id = pid, species = "hsa")#, kegg.dir = dir)
+}
+```
+
+## Analysis on Sex and Disease
+### DEA GO KEGG
+```{r sex dge go and kegg data generation}
+gxDataDonorDCM <- gxDataEntrez %>% select(rownames(sampleInfoEC))
+
+DEA_SexDis <- DifferentialGeneExpressionCalcSexDis(gxDataDonorDCM, sampleInfoEC, saveResultsOnly = F)
+head(DEA_SexDis$results)
+
+GOResultsSexDis <- goana(DEA_SexDis$fittedModel)
+KEGGresultsSexDis <- kegga(DEA_SexDis$fittedModel)
+```
+
+### Pathway plotting
+```{r sex pathway plotting}
+removeRows <- c(grep(".* - other$", KEGGresultsSexDis$Pathway), 
+                grep(".* - animal$", KEGGresultsSexDis$Pathway), 
+                grep(".* - multiple species$", KEGGresultsSexDis$Pathway), 
+                which(rownames(KEGGresultsSexDis) == "path:hsa01100"),
+                which(rownames(KEGGresultsSexDis) == "path:hsa04723"),
+                which(rownames(KEGGresultsSexDis) == "path:hsa05206"))
+
+removeRows <- c(
+  grep(".* - other$", KEGGresultsSexDis$Pathway),
+  grep(".* - animal$", KEGGresultsSexDis$Pathway),
+  grep(".* - multiple species$", KEGGresultsSexDis$Pathway),
+  which(rownames(KEGGresultsSexDis) == "path:hsa01100"),
+  which(rownames(KEGGresultsSexDis) == "path:hsa04723"),
+  which(rownames(KEGGresultsSexDis) == "path:hsa05206")
+)
+
+PThreshold <- 0.05
+
+sigKEGGresultsSexDis <- KEGGresultsSexDis[-removeRows,] %>% filter(P.Up < PThreshold | P.Down < PThreshold)
+keggresids <- gsub("^path:","" , rownames(sigKEGGresultsSexDis))
+# keggresids <- substr(rownames(KEGGResultsSex[which(KEGGResultsSex$P.Up < PThreshold | KEGGResultsSex$P.Down < PThreshold),]), 6, 13)
+
+foldchangesSexDis <- DEA_SexDis$results %>% dplyr::select(grep("logFC.*", colnames(DEA_SexDis$results)))
+```
+```{r}  
+dir = "./output/sexcomb"
+if (fs::dir_exists(dir)) {
+    cat("'", dir, "' already exists\n", sep = "")
+} else {
+    fs::dir_create(dir)
+}
+
+col <- viridisLite::viridis(10, option = "E", begin = 0.2)
+
+setwd(dir)
+for (pid in keggresids) {
+  pathview(gene.data = foldchangesSexDis, pathway.id = pid, species = "hsa", multi.state = T, low = col[1], mid = "grey", high = col[10])#, kegg.dir = dir)
+}
+```
+
+## ignore
+### DCMvsDonor
+#### Filter for analysis by individual sexes
+```{r DEA in male and female DCM patients, eval = F}
+# split data into male | female
+sampleInfoMale <- sampleInfoExtendedClean %>%
+  filter(Sex == "Male", !is.na(Diabetes), !is.na(Hypertension), !is.na(BMI)) %>%
+  mutate(Disease = factor(Disease)) %>%
+  column_to_rownames(var = "sample_name")
+gxDataEntrezMale <- gxDataEntrez %>%
+  select(rownames(sampleInfoMale))
+
+sampleInfoFemale <- sampleInfoExtendedClean %>%
+  filter(Sex == "Female", !is.na(Diabetes), !is.na(Hypertension), !is.na(BMI)) %>%
+  mutate(Disease = factor(Disease)) %>%
+  column_to_rownames(var = "sample_name")
+gxDataEntrezFemale <- gxDataEntrez %>%
+  select(rownames(sampleInfoFemale))
+
+# get differential gene expression data for male and female
+DEA_Male <- DifferentialGeneExpressionCalc(gxDataEntrezMale, sampleInfoMale, saveResultsOnly = F)
+DEA_Female <- DifferentialGeneExpressionCalc(gxDataEntrezFemale, sampleInfoFemale, saveResultsOnly = F)
+
+# filter for up/down-regulated genes in male and female patients and rank by logFC
+DEA_MaleDCM <- DEA_Male$results %>%
+  select(grep("DCM", colnames(DEA_Male$results))) %>%
+  mutate(logFC_DonorVsDCM = abs(logFC_DonorVsDCM)) %>%
+  arrange(desc("logFC_DonorVsDCM"))
+DEA_FemaleDCM <- DEA_Female$results %>%
+  select(grep("DCM", colnames(DEA_Female$results))) %>%
+  arrange(desc("logFC_DonorVsDCM"))
+
+DEA_Male <- c(DEA_Male, "rankedResultsDCM" = list(DEA_MaleDCM))
+DEA_Female <- c(DEA_Female, "rankedResultsDCM" = list(DEA_FemaleDCM))
+
+rm(DEA_MaleDCM, DEA_FemaleDCM)
+
+# export gene names for GO or GSEA analysis outside of R
+#write.table(rownames(DEA_Male$rankedResultsDCM),
+#  file = "output/diffExpGenes_MaleDCM.txt",
+#  quote = F, row.names = F, col.names = F
+#)
+#write.table(rownames(DEA_Female$rankedResultsDCM),
+#  file = "output/diffExpGenes_FemaleDCM.txt",
+#  quote = F, row.names = F, col.names = F
+#)
+```
+
+#### GO and KEGG analysis
+```{r DCMvsDonor by Sex go and kegg data generation}
+GOResultsMale <- goana(DEA_Male$fittedModel)
+GOResultsFemale <- goana(DEA_Female$fittedModel)
+
+KEGGResultsMale <- kegga(DEA_Male$fittedModel)
+KEGGResultsFemale <- kegga(DEA_Female$fittedModel)
+```
+
+```{r DCMvsDonor by Sex pathway plotting}
+PThreshold <- 0.05
+removeRows <- c(
+  grep(".* - other$", KEGGResultsMale$Pathway),
+  grep(".* - animal$", KEGGResultsMale$Pathway),
+  grep(".* - multiple species$", KEGGResultsMale$Pathway),
+  which(rownames(KEGGResultsMale) == "path:hsa01100"),
+  which(rownames(KEGGResultsMale) == "path:hsa04723"),
+  which(rownames(KEGGResultsMale) == "path:hsa05206")
+)
+sigKeggResultsMale <- KEGGResultsMale[-removeRows, ] %>% filter(P.Up < PThreshold | P.Down < PThreshold)
+
+removeRows <- c(
+  grep(".* - other$", KEGGResultsFemale$Pathway),
+  grep(".* - animal$", KEGGResultsFemale$Pathway),
+  grep(".* - multiple species$", KEGGResultsFemale$Pathway),
+  which(rownames(KEGGResultsFemale) == "path:hsa01100"),
+  which(rownames(KEGGResultsFemale) == "path:hsa04723"),
+  which(rownames(KEGGResultsFemale) == "path:hsa05206")
+)
+sigKeggResultsFemale <- KEGGResultsFemale[-removeRows, ] %>% filter(P.Up < PThreshold | P.Down < PThreshold)
+
+keggresidsMF <- unique(c(gsub("^path:", "", rownames(sigKeggResultsMale)), gsub("^path:", "", rownames(sigKeggResultsFemale)))) %>% sort()
+# keggresids <- substr(rownames(KEGGResults[which(KEGGResults$P.Up < PThreshold | KEGGResults$P.Down < PThreshold),]), 6, 13)
+
+foldchangesMale <- DEA_Male$results %>% dplyr::select(logFC_DonorVsDCM) %>% transmute(logFC_DonorVsDCM_Male = logFC_DonorVsDCM) %>% rownames_to_column(var = "entrez_id")
+foldchangesMF <- DEA_Female$results %>% dplyr::select(logFC_DonorVsDCM) %>% transmute(logFC_DonorVsDCM_Female = logFC_DonorVsDCM) %>% rownames_to_column(var = "entrez_id") %>% left_join(foldchangesMale, by = "entrez_id") %>% column_to_rownames(var = "entrez_id")
+rm(foldchangesMale) 
+
+dir = "./output/multipleComp"
+if (fs::dir_exists(dir)) {
+    cat("'", dir, "' already exists\n", sep = "")
+} else {
+    fs::dir_create(dir)
+}
+
+setwd(dir)
+for (pid in keggresids) {
+  pathview(gene.data = foldchangesMF, pathway.id = pid, species = "hsa", multi.state = T)
+}
+```
+
+WARNING: generates lots of files, use at own discretion
+### ? Pathway analysis
+```{r Pathway plotting}
+PThreshold <- 0.05
+
+keggresids <- substr(rownames(KEGGResults[which(KEGGResults$P.Up < PThreshold | KEGGResults$P.Down < PThreshold), ]), 6, 13)
+foldchanges <- as.data.frame(DEAentrez$results$logFC_DonorVsDCM[DEAentrez$results$P.Value_DonorVsDCM < PThreshold])
+# rownames(foldchanges) <- rownames(which(DEAentrez$results[DEAentrez$results$P.Value_DonorVsDCM < PThreshold]))
+setwd("./output")
+# plot multiple pathways (plots saved to disk and returns a throwaway list object)
+tmp <- sapply(keggresids, function(pid) pathview(gene.data = foldchanges, pathway.id = pid, species = "hsa"))
+```
+
+### DEA by subsets
+```{r subset sampleInfo by each combination of co-variates}
+# filter sampleInfo, split subjects into groups by each co-variate
+sampleInfoSubsets <- list()
+sampleInfoDonor <- sampleInfo %>% filter(Disease == "Donor")
+
+for (Dis in c("DCM", "HCM", "PPCM")) {
+  sampleInfoDis <- sampleInfo %>% filter(Disease == Dis)
+  sampleInfoDis <- rbind(sampleInfoDis, sampleInfoDonor) %>% mutate(Disease = factor(Disease))
+  for (Sx in levels(sampleInfoDis$Sex)) {
+    sampleInfoSx <- sampleInfoDis %>%
+      filter(Sex == Sx) %>%
+      mutate(Sex = factor(Sex, levels = Sx))
+    for (Eth in levels(sampleInfoSx$Ethnicity)) {
+      sampleInfoEth <- sampleInfoSx %>%
+        filter(Ethnicity == Eth) %>%
+        mutate(
+          Ethnicity = factor(Ethnicity, levels = Eth),
+          Disease = factor(Disease, levels = unique(Disease))
+        )
+      sampleInfoSubsets[[paste(Dis, Sx, Eth, sep = "_")]] <- data.frame(sampleInfoEth)
+    }
+  }
+}
+
+# remove PPCM and Donor sets
+sampleInfoTemp <- sampleInfoSubsets[-c(grep("PPCM", names(sampleInfoSubsets)))]
+sampleInfoDcmHcm <- sampleInfoTemp[-grep("HCM_Male_African.American", names(sampleInfoTemp))]
+
+rm(sampleInfoTemp, sampleInfoSubsets, sampleInfoDonor, sampleInfoDis, sampleInfoEth, sampleInfoSx, Dis, Sx, Eth)
+```
+
+#### GO and KEGG analysis for each subgroup in sampleInfoDcmHcm
+```{r GO and KEGG analysis for each subset in sampleInfoDcmHcm}
+# GO and KEGG analysis for each subgroup in sampleInfoDcmHcm
+pathwaySubset <- list()
+
+for (subset in names(sampleInfoDcmHcm)) {
+  SInfoSubs <- as.data.frame(sampleInfoDcmHcm[subset], col.names = "")
+  gxDataSubs <- gxDataEntrez %>% dplyr::select(rownames(SInfoSubs))
+  DEAentrezSubs <- DifferentialGeneExpressionCalc(gxDataSubs, SInfoSubs, saveResultsOnly = F)
+  GOsubs <- goana(DEAentrezSubs$fittedModel)
+  KEGGsubs <- kegga(DEAentrezSubs$fittedModel)
+  subsetData <- list("DEAResults" = DEAentrezSubs, "GOResults" = GOsubs, "KEGGResults" = KEGGsubs)
+  pathwaySubset <- c(pathwaySubset, list(subsetData))
+  rm(subsetData)
+}
+names(pathwaySubset) <- names(sampleInfoDcmHcm)
+
+rm(SInfoSubs, gxDataSubs, DEAentrezSubs, GOsubs, KEGGsubs)
+```
+
+WARNING: generates lots of files, use at own discretion
+```{r}
+PThreshold <- 0.05
+if (fs::dir_exists("output/pathview_xmls")) {
+  cat("'output/pathview_xmls' already exist")
+} else {
+  fs::dir_create("output/pathview_xmls")
+}
+if (fs::dir_exists("output/pathview_rawPNGs")) {
+  cat("'output/pathview_rawPNGs' already exist")
+} else {
+  fs::dir_create("output/pathview_rawPNGs")
+}
+
+# filter for significantly overrepresentation in up- or down-regulation
+for (set in names(pathwaySubset)) {
+  removeRows <- c(
+    grep(".* - other$", pathwaySubset[[set]]$KEGGResults$Pathway),
+    grep(".* - animal$", pathwaySubset[[set]]$KEGGResults$Pathway),
+    grep(".* - multiple species$", pathwaySubset[[set]]$KEGGResults$Pathway),
+    which(rownames(pathwaySubset[[set]]$KEGGResults) == "path:hsa01100"),
+    which(rownames(pathwaySubset[[set]]$KEGGResults) == "path:hsa05206")
+  )
+
+  keggresids <- pathwaySubset[[set]]$KEGGResults[-removeRows, ] %>% filter(P.Up < PThreshold | P.Down < PThreshold)
+  keggresids <- gsub("^path:", "", rownames(keggresids))
+  foldchanges <- pathwaySubset[[set]]$DEAResults$results %>% dplyr::select(1)
+
+  # plot multiple pathways (plots saved to disk and returns a throwaway list object)
+
+  # create directory if not existing already
+  keggresids <- gsub("^path:","" , rownames(keggresids)) 
+
+  foldchanges <- pathwaySubset[[set]]$DEAResults$results %>% dplyr::select(1)
+
+    if (fs::dir_exists(paste("output/", set, sep = ""))) {
+    cat("'output/", set, "' already exists\n", sep = "")
+  } else {
+    fs::dir_create(paste("output/", set, sep = ""))
+  }
+
+
+  for (pid in keggresids) {
+    if (fs::file_exists(paste("./output/", set, "/", pid, ".pathview.png", sep = ""))) {
+      # cat("pathway file for '", set, "' '", pid, "' already exists\n", sep = "")
+    } else {
+      pathview(gene.data = foldchanges, pathway.id = pid, species = "hsa")
+
+      # move new files to respective folders
+
+      cat("moving files...\n")
+      fs::file_copy(
+        path = paste(pid, ".pathview.png", sep = ""),
+        new_path = paste("./output/", set, "/", pid, ".pathview.png", sep = ""),
+        overwrite = T
+      )
+
+      if (fs::file_exists(paste("./output/pathview_rawPNGs/", pid, ".png", sep = ""))) {
+        cat("'output/pathview_rawPNGs/", pid, ".png' already exists\n", sep = "")
+      } else {
+        fs::file_copy(
+          path = paste(pid, ".png", sep = ""),
+          new_path = paste("./output/pathview_rawPNGs/", pid, ".png", sep = ""),
+          overwrite = F
+        )
+      }
+      if (fs::file_exists(paste("./output/pathview_xmls/", pid, ".xml", sep = ""))) {
+        cat("'output/pathview_xmls/", pid, ".xml' already exists\n", sep = "")
+      } else {
+        fs::file_copy(
+          path = paste(pid, ".xml", sep = ""),
+          new_path = paste("./output/pathview_xmls/", pid, ".xml", sep = ""),
+          overwrite = F
+        )
+      }
+
+      fs::file_delete(c(
+        path = paste(pid, ".png", sep = ""),
+        path = paste(pid, ".pathview.png", sep = ""),
+        path = paste(pid, ".xml", sep = "")
+      ))
+    }
+  }
+}
+
+rm(keggresids, foldchanges, PThreshold, removeRows)
+```
+
+### GO and KEGG analysis for all data, no cleaning
+```{r Gene Ontology and Gene Enrichment Analysis, error = F, eval = F}
+uniqEntrezGenes <- geneAnnotationData %>%
+  select(c("ensembl_gene_id", "entrezgene_id")) %>%
+  distinct() %>%
+  arrange(ensembl_gene_id, entrezgene_id) %>%
+  filter(!duplicated(ensembl_gene_id)) %>%
+  arrange(entrezgene_id, ensembl_gene_id) %>%
+  filter(!duplicated(entrezgene_id), !is.na(entrezgene_id))
+
+gxDataEntrez <- gxData %>%
+  rownames_to_column(var = "ensembl_gene_id") %>%
+  filter(ensembl_gene_id %in% uniqEntrezGenes$ensembl_gene_id) %>%
+  left_join(uniqEntrezGenes, by = "ensembl_gene_id") %>%
+  select(-ensembl_gene_id) %>%
+  column_to_rownames(var = "entrezgene_id")
+
+# GO and KEGG analysis for all subjects
+DEAentrez <- DifferentialGeneExpressionCalc(gxDataEntrez, sampleInfo, saveResultsOnly = F)
+
+GOResults <- goana(DEAentrez$fittedModel)
+KEGGResults <- kegga(DEAentrez$fittedModel)
+```
+
+WARNING: generates lots of files, use at own discretion
+#### Pathway analysis
+```{r Pathway plotting}
+PThreshold <- 0.05
+
+keggresids <- substr(rownames(KEGGResults[which(KEGGResults$P.Up < PThreshold | KEGGResults$P.Down < PThreshold), ]), 6, 13)
+foldchanges <- as.data.frame(DEAentrez$results$logFC_DonorVsDCM[DEAentrez$results$P.Value_DonorVsDCM < PThreshold])
+rownames(foldchanges) <- rownames(DEAentrez$results[DEAentrez$results$P.Value_DonorVsDCM < PThreshold,])
+setwd("./output")
+# plot multiple pathways (plots saved to disk and returns a throwaway list object)
+tmp <- sapply(keggresids, function(pid) pathview(gene.data = foldchanges, pathway.id = pid, species = "hsa"))
+```
