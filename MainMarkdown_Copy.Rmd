@@ -38,7 +38,7 @@ sampleInfoExtendedClean <- sampleInfoExtended %>%
   dplyr::select(-c("etiology", "race", "gender", "afib", "disease_race")) %>%
   dplyr::rename("Age" = "age", "LV.EjectionFraction" = "LVEF")
 
-KEGGpathwayGroups <- read.delim("pathways.txt", as.is = T, header = F) 
+KEGGpathwayGroups <- read.delim("./Data/pathways.txt", as.is = T, header = F) 
 KEGGpathwayGroups <- KEGGpathwayGroups %>% data.frame() %>% mutate(KEGGid = paste(KEGGpathwayGroups$V1, KEGGpathwayGroups$V2, sep = "")) %>% select(-c("V1", "V2"))
 colnames(KEGGpathwayGroups) <- c("Pathway", "pathway.group", "KEGGid")
 ```
@@ -73,7 +73,7 @@ geneAnnotationData <- getBM(
   attributes = c(
     "ensembl_gene_id",
     # "ensembl_gene_id_version",
-    "go_id",
+    #"go_id",
     "entrezgene_id",
     "chromosome_name",
     "external_gene_name",
@@ -337,7 +337,7 @@ removeRows <- c(
   which(rownames(KEGGresultsSexDCM) == "path:hsa04723"),
   which(rownames(KEGGresultsSexDCM) == "path:hsa05206")
 )
-sigKEGGresultsSexDCM <- KEGGresultsSexDCM[-removeRows,] %>% filter(P.Up < PThreshold | P.Down < PThreshold) %>% left_join(KEGGpathwayGroups[,1:2], by = "Pathway")
+sigKEGGresultsSexDCM <- KEGGresultsSexDCM[-removeRows,] %>% filter(P.Up < PThreshold | P.Down < PThreshold) #%>% left_join(KEGGpathwayGroups[,1:2], by = "Pathway")
 write_csv(sigKEGGresultsSexDCM, file = "./output/sigKEGGpathwaysSexDCM.csv")
 
 removeRows <- c(
@@ -348,7 +348,7 @@ removeRows <- c(
   which(rownames(KEGGresultsSexDonor) == "path:hsa04723"),
   which(rownames(KEGGresultsSexDonor) == "path:hsa05206")
 )
-sigKEGGresultsSexDonor <- KEGGresultsSexDonor[-removeRows,] %>% filter(P.Up < PThreshold | P.Down < PThreshold) %>% left_join(KEGGpathwayGroups[,1:2], by = "Pathway")
+sigKEGGresultsSexDonor <- KEGGresultsSexDonor[-removeRows,] %>% filter(P.Up < PThreshold | P.Down < PThreshold) #%>% left_join(KEGGpathwayGroups[,1:2], by = "Pathway")
 write_csv(sigKEGGresultsSexDonor, file = "./output/sigKEGGpathwaysSexDonor.csv")
 
 if (all(gsub("^path:","" , rownames(sigKEGGresultsSexDCM)) == gsub("^path:","" , rownames(sigKEGGresultsSexDonor))) ) {
@@ -365,6 +365,7 @@ rm(foldchangesDCM)
 #foldchangesQuad <- foldchangesMF %>% rownames_to_column(var = "entrez_id") %>% right_join(foldchanges, by = "entrez_id") %>% column_to_rownames(var = "entrez_id")
 #foldchangesQuad <- foldchangesQuad %>% relocate(c("logFC_MaleVsFemale_Donor", "logFC_MaleVsFemale_DCM", "logFC_DonorVsDCM_Male"), .before = "logFC_DonorVsDCM_Female")
 ```
+
 ```{r, echo = F}
 dir = "./output/sex"
 if (fs::dir_exists(dir)) {
@@ -372,12 +373,21 @@ if (fs::dir_exists(dir)) {
 } else {
     fs::dir_create(dir)
 }
-
 setwd(dir)
+
+keggdir = "./kegg.dir"
+if (fs::dir_exists(keggdir)) {
+    cat("'", keggdir, "' already exists\n", sep = "")
+} else {
+    fs::dir_create(keggdir)
+}
+
+
 for (pid in keggresidsDonorDCM) {
   pathview(gene.data = foldchangesDonorDCM, pathway.id = pid, species = "hsa", multi.state = T, low = list(gene = "#440154FF"), mid = list(gene = "#21908CFF"), high = list(gene = "#FDE725FF"), kegg.dir = "./kegg.dir")
 }
 ```
+
 
 WARNING: generates lots of files, use at own discretion
 ##Sex pathway analysis
@@ -412,12 +422,13 @@ removeRows <- c(grep(".* - other$", KEGGresultsSex$Pathway),
                 which(rownames(KEGGresultsSex) == "path:hsa01100"),
                 which(rownames(KEGGresultsSex) == "path:hsa04723"),
                 which(rownames(KEGGresultsSex) == "path:hsa05206"))
-sigKEGGresultsSex <- KEGGresultsSex[-removeRows,] %>% filter(P.Up < PThreshold | P.Down < PThreshold) %>% left_join(KEGGpathwayGroups[,1:2], by = "Pathway")
+sigKEGGresultsSex <- KEGGresultsSex[-removeRows,] %>% filter(P.Up < PThreshold | P.Down < PThreshold) #%>% left_join(KEGGpathwayGroups[,1:2], by = "Pathway")
 
 keggresids <- gsub("^path:","" , rownames(sigKEGGresultsSex))
 # keggresids <- substr(rownames(KEGGresultsSex[which(KEGGresultsSex$P.Up < PThreshold | KEGGresultsSex$P.Down < PThreshold),]), 6, 13)
 foldchanges <- DEA_Sex$results %>% dplyr::select(1)
 ```
+
 ```{r}
 dir = "./output/sex"
 if (fs::dir_exists(paste("output/sex", sep = ""))) {
@@ -426,6 +437,14 @@ if (fs::dir_exists(paste("output/sex", sep = ""))) {
     fs::dir_create(dir)
 }
 setwd(dir)
+
+keggdir = "./kegg.dir"
+if (fs::dir_exists(keggdir)) {
+    cat("'", keggdir, "' already exists\n", sep = "")
+} else {
+    fs::dir_create(keggdir)
+}
+
 for (pid in keggresids) {
   pathview(gene.data = foldchanges, pathway.id = pid, species = "hsa", kegg.dir = "./kegg.dir")
 }
@@ -470,7 +489,7 @@ removeRows <- c(
 
 PThreshold <- 0.05
 
-sigKEGGresultsSexDis <- KEGGresultsSexDis[-removeRows,] %>% filter(P.Up < PThreshold | P.Down < PThreshold) %>% left_join(KEGGpathwayGroups[,1:2], by = "Pathway")
+sigKEGGresultsSexDis <- KEGGresultsSexDis[-removeRows,] %>% filter(P.Up < PThreshold | P.Down < PThreshold) #%>% left_join(KEGGpathwayGroups[,1:2], by = "Pathway")
 write_csv(sigKEGGresultsSexDis, file = "./output/sigKEGGpathwaysSexDis.csv")
 
 keggresidsSexDis <- unique(c(gsub("^path:","" , rownames(sigKEGGresultsSexDis)), keggresidsDonorDCM))
@@ -479,6 +498,7 @@ keggresidsSexDis <- unique(c(gsub("^path:","" , rownames(sigKEGGresultsSexDis)),
 foldchangesDonorDCMeid <- foldchangesDonorDCM %>% rownames_to_column(var = "entrez_id")
 foldchangesSexDis <- DEA_SexDis$results %>% dplyr::select(grep("logFC.*", colnames(DEA_SexDis$results))) %>% rownames_to_column(var = "entrez_id") %>% inner_join(foldchangesDonorDCMeid, by = "entrez_id") %>% column_to_rownames(var = "entrez_id") %>% relocate(1, .after = 3)
 ```
+
 ```{r}  
 dir = "./output/sexcomb"
 if (fs::dir_exists(paste(dir, sep = ""))) {
@@ -490,12 +510,43 @@ if (fs::dir_exists(paste(dir, sep = ""))) {
 col <- viridisLite::viridis(10, option = "D", begin = 0.2)
 
 setwd(dir)
+
+keggdir = "./kegg.dir"
+if (fs::dir_exists(keggdir)) {
+    cat("'", keggdir, "' already exists\n", sep = "")
+} else {
+    fs::dir_create(keggdir)
+}
+
 for (pid in keggresidsSexDis) {
   pathview(gene.data = foldchangesSexDis, pathway.id = pid, species = "hsa", multi.state = T, low = "blue", mid = "grey", high = "red", kegg.dir = "./kegg.dir", cex = 0.5)
 }
 ```
 
 ## ignore
+
+
+```{r}
+dir = "./output/test"
+if (fs::dir_exists(paste(dir, sep = ""))) {
+    cat("'", dir, "' already exists\n", sep = "")
+} else {
+    fs::dir_create(paste(dir, sep = ""))
+}
+
+col <- viridisLite::viridis(10, option = "D", begin = 0.2)
+
+setwd(dir)
+
+keggdir = "./kegg.dir"
+if (fs::dir_exists(keggdir)) {
+    cat("'", keggdir, "' already exists\n", sep = "")
+} else {
+    fs::dir_create(keggdir)
+}
+pathview(gene.data = foldchangesSexDis, pathway.id = "hsa04640", species = "hsa", multi.state = T, low = "blue", mid = "grey", high = "red", kegg.dir = "./kegg.dir")
+```
+
 ### DCMvsDonor
 #### Filter for analysis by individual sexes
 ```{r DEA in male and female DCM patients, eval = F}
@@ -551,11 +602,13 @@ GOResultsFemale <- goana(DEA_Female$fittedModel)
 KEGGresultsMale <- kegga(DEA_Male$fittedModel)
 KEGGresultsFemale <- kegga(DEA_Female$fittedModel)
 ```
+
 ```{r GO signficance filtering}
 PThreshold <- 0.05
 sigGOResultsMale <- GOResultsMale %>% filter(P.Up < PThreshold | P.Down < PThreshold)
 sigGOResultsFemale <- GOResultsFemale %>% filter(P.Up < PThreshold | P.Down < PThreshold)
 ```
+
 ```{r DCMvsDonor by Sex pathway plotting}
 removeRows <- c(
   grep(".* - other$", KEGGresultsMale$Pathway),
@@ -581,9 +634,10 @@ keggresidsMF <- unique(c(gsub("^path:", "", rownames(sigKeggResultsMale)), gsub(
 # keggresids <- substr(rownames(KEGGresults[which(KEGGresults$P.Up < PThreshold | KEGGresults$P.Down < PThreshold),]), 6, 13)
 
 foldchangesMale <- DEA_Male$results %>% dplyr::select(logFC_DonorVsDCM) %>% transmute(logFC_DonorVsDCM_Male = logFC_DonorVsDCM) %>% rownames_to_column(var = "entrez_id")
-foldchangesMF <- DEA_Female$results %>% dplyr::select(logFC_DonorVsDCM) %>% transmute(logFC_DonorVsDCM_Female = logFC_DonorVsDCM) %>% rownames_to_column(var = "entrez_id") %>% left_join(foldchangesMale, by = "entrez_id") %>% column_to_rownames(var = "entrez_id")
+foldchangesMF <- DEA_Female$results %>% dplyr::select(logFC_DonorVsDCM) %>% transmute(logFC_DonorVsDCM_Female = logFC_DonorVsDCM) %>% rownames_to_column(var = "entrez_id") #%>% left_join(foldchangesMale, by = "entrez_id") %>% column_to_rownames(var = "entrez_id")
 rm(foldchangesMale) 
 ```
+
 ```{r}
 dir = "./output/multipleComp"
 if (fs::dir_exists(dir)) {
